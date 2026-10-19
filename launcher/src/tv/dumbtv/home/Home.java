@@ -278,23 +278,52 @@ public final class Home extends Activity {
         column.setOrientation(LinearLayout.VERTICAL);
         column.setClipChildren(false);
         column.setClipToPadding(false);
-        column.setPadding(0, dp(40), 0, dp(32));
+        column.setPadding(0, dp(30), 0, dp(28));
         scroll.addView(column, new FrameLayout.LayoutParams(MATCH, WRAP));
 
         LinearLayout head = new LinearLayout(this);
-        head.setGravity(Gravity.TOP);
+        head.setGravity(Gravity.CENTER_VERTICAL);
         head.setPadding(dp(56), 0, dp(56), dp(12));
+        TextView brand = Ui.text(this, 21, Ui.TEXT, Ui.MEDIUM);
+        brand.setText("dumbtv");
+        head.addView(brand, new LinearLayout.LayoutParams(0, WRAP, 1f));
+
+        LinearLayout nav = new LinearLayout(this);
+        nav.setGravity(Gravity.CENTER);
+        nav.addView(chip("Home", v -> focusFirst()));
+        nav.addView(chip("Apps", v -> focusApps()));
+        nav.addView(chip("Settings", v -> startActivity(new Intent(this, Options.class))));
+        head.addView(nav);
+
         LinearLayout when = new LinearLayout(this);
+        when.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         when.setOrientation(LinearLayout.VERTICAL);
-        clock = Ui.text(this, 52, Ui.TEXT, Ui.LIGHT);
-        date = Ui.text(this, 15, Ui.MUTED, Ui.MEDIUM);
-        date.setPadding(dp(2), dp(8), 0, 0);
+        clock = Ui.text(this, 20, Ui.TEXT, Ui.MEDIUM);
+        clock.setGravity(Gravity.END);
+        date = Ui.text(this, 12, Ui.MUTED, Ui.MEDIUM);
+        date.setGravity(Gravity.END);
+        date.setPadding(0, dp(5), 0, 0);
         when.addView(clock);
         when.addView(date);
         head.addView(when, new LinearLayout.LayoutParams(0, WRAP, 1f));
-        head.addView(chip("Options", v -> startActivity(new Intent(this, Options.class))));
-        head.addView(chip("Settings", v -> openSettings()));
         column.addView(head, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        LinearLayout welcome = new LinearLayout(this);
+        welcome.setOrientation(LinearLayout.VERTICAL);
+        welcome.setPadding(dp(56), dp(42), dp(56), dp(28));
+        TextView eyebrow = Ui.text(this, 12, Ui.MUTED, Ui.MEDIUM);
+        eyebrow.setText("WELCOME HOME");
+        eyebrow.setLetterSpacing(0.18f);
+        welcome.addView(eyebrow);
+        TextView title = Ui.text(this, 36, Ui.TEXT, Ui.LIGHT);
+        title.setText("Everything you want to watch");
+        title.setPadding(0, dp(14), 0, 0);
+        welcome.addView(title);
+        TextView subtitle = Ui.text(this, 16, Ui.MUTED, Ui.MEDIUM);
+        subtitle.setText("All the apps you want on your home screen.");
+        subtitle.setPadding(0, dp(10), 0, 0);
+        welcome.addView(subtitle);
+        column.addView(welcome, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         apps = new Row(Catalog.APPS, "Apps", column);
         inputs = new Row(Catalog.INPUTS, "Inputs", column);
@@ -440,6 +469,13 @@ public final class Home extends Activity {
         View first = apps.strip.getChildAt(0);
         if (first == null) first = inputs.strip.getChildAt(0);
         landed = apps.strip.getChildCount() > 0;
+        if (first == null) first = chips.get(0);
+        first.requestFocus();
+    }
+
+    private void focusApps() {
+        apps.scroll.scrollTo(0, 0);
+        View first = apps.strip.getChildAt(0);
         if (first == null) first = chips.get(0);
         first.requestFocus();
     }

@@ -3,9 +3,11 @@ package tv.dumbtv.home;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.drawable.StateListDrawable;
 import android.media.tv.TvInputManager;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
@@ -51,6 +53,7 @@ public final class Options extends Activity {
         list.addView(gap());
         list.addView(action("Apps on home screen", () -> pick(Catalog.APPS)));
         list.addView(action("Inputs on home screen", () -> pick(Catalog.INPUTS)));
+        list.addView(action("Open Fire TV settings", this::openTvSettings));
         list.addView(action("Reset order, names and hidden tiles", this::reset));
         list.addView(action("Open Amazon's home screen", () -> {
             Guard.amazon(this);
@@ -183,6 +186,16 @@ public final class Options extends Activity {
                         Catalog.setShown(cfg, kind, items.get(which), checked))
                 .setPositiveButton("Done", null)
                 .show();
+    }
+
+    private void openTvSettings() {
+        Intent leanback = new Intent(Intent.ACTION_MAIN)
+                .addCategory("android.intent.category.LEANBACK_SETTINGS");
+        if (leanback.resolveActivity(getPackageManager()) != null) {
+            startActivity(leanback);
+        } else {
+            startActivity(new Intent(Settings.ACTION_SETTINGS));
+        }
     }
 
     private void reset() {
