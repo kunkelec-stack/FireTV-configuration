@@ -36,10 +36,36 @@ final class Catalog {
     }
 
     static final class Title {
-        final String name, detail, poster, imdbId;
+        final String name, detail, poster, imdbId, id, overview, genres;
+        final int runtime;
+        private final JSONObject metadata;
         final List<Offer> offers;
-        Title(String name, String detail, String poster, String imdbId, List<Offer> offers) {
+        Title(String name, String detail, String poster, String imdbId, List<Offer> offers, JSONObject show) {
             this.name = name; this.detail = detail; this.poster = poster; this.imdbId = imdbId; this.offers = offers;
+            String rawId = show.optString("id", "");
+            id = rawId.matches("[0-9]{1,20}") ? rawId : "";
+            overview = show.optString("overview", "");
+            runtime = Math.max(0, show.optInt("runtime", 0));
+            List<String> names = new ArrayList<>();
+            JSONArray source = show.optJSONArray("genres");
+            if (source != null) for (int i = 0; i < Math.min(source.length(), 8); i++) {
+                JSONObject genre = source.optJSONObject(i);
+                if (genre != null && !genre.optString("name").isEmpty()) names.add(genre.optString("name"));
+            }
+            genres = String.join(" · ", names);
+            metadata = show;
+        }
+        String identity() {
+            return !id.isEmpty() ? "show:" + id : !imdbId.isEmpty() ? imdbId : name + "|" + detail;
+        }
+        JSONObject snapshot() throws JSONException {
+            JSONObject saved = new JSONObject();
+            for (String field : new String[] {"id", "title", "showType", "releaseYear", "firstAirYear", "imdbId", "overview", "runtime", "genres"}) {
+                if (metadata.has(field)) saved.put(field, metadata.get(field));
+            }
+            saved.put("imageSet", new JSONObject().put("verticalPoster", new JSONObject().put("w240", poster)));
+            saved.put("streamingOptions", new JSONObject()); // Offers must be refreshed, never restored as current.
+            return saved;
         }
     }
 
@@ -60,6 +86,23 @@ final class Catalog {
     static List<Title> search(String query, String key, Set<String> selected) throws IOException {
         URL url = new URL("https://api.movieofthenight.com/v4/shows/search/title?country=us&title="
                 + URLEncoder.encode(query, "UTF-8"));
+        return parse(request(url, key), selected);
+    }
+
+    static Title refresh(Title saved, String key, Set<String> selected) throws IOException {
+        String id = !saved.id.isEmpty() ? saved.id : saved.imdbId;
+        if (id.isEmpty()) throw new IOException("This saved title has no catalog ID. Search its name again.");
+        try {
+            JSONObject show = new JSONObject(request(new URL("https://api.movieofthenight.com/v4/shows/" + id + "?country=us"), key));
+            Title title = parse(new JSONArray().put(show).toString(), selected).get(0);
+            boolean same = !saved.id.isEmpty() ? saved.id.equals(title.id) : saved.imdbId.equals(title.imdbId);
+            if (!same)
+                throw new IOException("The catalog returned a different title. Search its name again.");
+            return title;
+        } catch (JSONException e) { throw new IOException("The catalog returned an unexpected title response.", e); }
+    }
+
+    private static String request(URL url, String key) throws IOException {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         connection.setConnectTimeout(8000);
         connection.setReadTimeout(12000);
@@ -70,6 +113,7 @@ final class Catalog {
             int code = connection.getResponseCode();
             if (code == 401 || code == 403) throw new IOException("The catalog key was rejected. Check Search setup.");
             if (code == 429) throw new IOException("The catalog's request limit was reached. Please try again later.");
+            if (code == 404) throw new IOException("This title is no longer listed in the catalog. Try searching again.");
             if (code != 200) throw new IOException("The catalog is unavailable right now. Please try again later.");
             try (InputStream input = connection.getInputStream();
                     ByteArrayOutputStream out = new ByteArrayOutputStream()) {
@@ -79,7 +123,7 @@ final class Catalog {
                     if (out.size() + count > 4 * 1024 * 1024) throw new IOException("The catalog response was too large.");
                     out.write(buffer, 0, count);
                 }
-                return parse(new String(out.toByteArray(), StandardCharsets.UTF_8), selected);
+                return new String(out.toByteArray(), StandardCharsets.UTF_8);
             }
         } catch (SocketTimeoutException e) {
             throw new IOException("The catalog timed out. Check the connection and try again.", e);
@@ -122,7 +166,7 @@ final class Catalog {
                 if (poster.isEmpty() && vertical != null) poster = vertical.optString("w360", "");
                 String imdbId = show.optString("imdbId", "");
                 if (!imdbId.matches("tt[0-9]{7,10}")) imdbId = "";
-                titles.add(new Title(name, detail, poster, imdbId, new ArrayList<>(offers.values())));
+                titles.add(new Title(name, detail, poster, imdbId, new ArrayList<>(offers.values()), show));
             }
             return titles;
         } catch (JSONException e) {

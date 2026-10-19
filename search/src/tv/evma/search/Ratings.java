@@ -78,6 +78,7 @@ final class Ratings {
     void close() { cancelPending(); workers.shutdownNow(); }
 
     private void label(TextView view, String label, String explanation) {
+        view.setCompoundDrawablesWithIntrinsicBounds(0, 0, 0, 0);
         view.setText(label);
         view.setContentDescription(explanation);
         view.setTooltipText(explanation);
@@ -94,6 +95,8 @@ final class Ratings {
     private void show(TextView view, int score) {
         if (score >= 0) {
             label(view, "RT " + score + "%", "Rotten Tomatoes critics score: " + score + " percent. Data via OMDb.");
+            view.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_tomato, 0, 0, 0);
+            view.setCompoundDrawablePadding(Math.round(5 * view.getResources().getDisplayMetrics().density));
         } else if (score == AUTH) {
             label(view, "RT · Check key", "OMDb rejected the ratings key. Check Rotten Tomatoes setup in Settings.");
         } else if (score == QUOTA) {

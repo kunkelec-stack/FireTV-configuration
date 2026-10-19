@@ -2,6 +2,7 @@ package tv.evma.search;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -31,12 +32,14 @@ import android.widget.ProgressBar;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.ScrollView;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -54,6 +57,12 @@ public final class Search extends Activity {
     private final List<Catalog.Title> titles = new ArrayList<>();
     private final Posters posters = new Posters();
     private Ratings ratings;
+    private Library library;
+    private Button profileButton;
+    private Dialog detailsDialog;
+    private int detailsGeneration;
+    private boolean watchlistMode;
+    private String lastPick = "";
     private final BaseAdapter adapter = new BaseAdapter() {
         @Override public int getCount() { return titles.size(); }
         @Override public Object getItem(int position) { return titles.get(position); }
@@ -68,6 +77,7 @@ public final class Search extends Activity {
         super.onCreate(state);
         prefs = getSharedPreferences("catalog", MODE_PRIVATE);
         ratings = new Ratings(this);
+        library = new Library(this);
         FrameLayout root = new FrameLayout(this);
         ImageView wallpaper = new ImageView(this);
         wallpaper.setImageResource(R.drawable.wallpaper);
@@ -86,6 +96,11 @@ public final class Search extends Activity {
         TextView title = text("EVMA ♥  /  Discover", 22);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        head.addView(button("Watchlist", this::watchlist));
+        head.addView(button("Recent", this::recent));
+        head.addView(button("Pick for us", this::randomPick));
+        profileButton = button(library.name() + " ▾", this::profiles);
+        head.addView(profileButton);
         head.addView(button("⚙  Settings", this::settings));
         column.addView(head);
         LinearLayout entry = new LinearLayout(this);
@@ -140,7 +155,7 @@ public final class Search extends Activity {
         results.setSelector(android.R.color.transparent);
         results.setDrawSelectorOnTop(false);
         results.setAdapter(adapter);
-        results.setOnItemClickListener((parent, view, position, id) -> choose(titles.get(position)));
+        results.setOnItemClickListener((parent, view, position, id) -> details(titles.get(position), watchlistMode));
         content.addView(results, new FrameLayout.LayoutParams(-1, -1));
         empty = new LinearLayout(this);
         empty.setOrientation(LinearLayout.VERTICAL);
@@ -171,9 +186,7 @@ public final class Search extends Activity {
     }
 
     private Set<String> selected() {
-        Set<String> defaults = new HashSet<>();
-        for (String name : Catalog.SERVICES) defaults.add(Catalog.serviceKey(name));
-        return new HashSet<>(prefs.getStringSet("services", defaults));
+        return library.services();
     }
 
     private void search() {
@@ -187,6 +200,8 @@ public final class Search extends Activity {
         if (selection.isEmpty()) { status.setText("Choose at least one service first."); services(); return; }
         ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(query.getWindowToken(), 0);
         int ticket = ++generation;
+        watchlistMode = false;
+        library.remember(term);
         clearResults();
         progress.setVisibility(View.VISIBLE);
         showEmpty("Finding your next watch", "Checking your selected US subscription and free services…");
@@ -320,7 +335,8 @@ public final class Search extends Activity {
                     String id = Catalog.serviceKey(Catalog.SERVICES[which]);
                     if (on) choice.add(id); else choice.remove(id);
                 }).setPositiveButton("Save", (dialog, which) -> {
-                    ++generation; prefs.edit().putStringSet("services", choice).apply();
+                    if (!library.services(choice)) { message("Could not save services", "Try again."); return; }
+                    ++generation;
                     clearResults(); status.setText("Services updated. Run a new search.");
                     showEmpty("Your services, your movie night", "Search again to check your updated selection.");
                 }).setNegativeButton("Cancel", null).show();
@@ -328,6 +344,189 @@ public final class Search extends Activity {
 
     private void message(String title, String detail) {
         new AlertDialog.Builder(this).setTitle(title).setMessage(detail).setPositiveButton("OK", null).show();
+    }
+
+    private void profiles() {
+        new AlertDialog.Builder(this).setTitle("Who's watching?")
+                .setSingleChoiceItems(Library.NAMES, library.active(), (dialog, index) -> {
+                    if (!library.activate(index)) { message("Could not switch profile", "Please try again."); return; }
+                    dialog.dismiss();
+                    ++generation;
+                    clearResults();
+                    watchlistMode = false;
+                    query.setText("");
+                    profileButton.setText(library.name() + " ▾");
+                    status.setText(library.name() + " · US subscription & free");
+                    showEmpty("Welcome, " + library.name(), "Your watchlist, recent searches, and streaming filters are ready.");
+                    query.requestFocus();
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void recent() {
+        List<String> history = library.recent();
+        if (history.isEmpty()) { message("No recent searches", "Search for a title to start " + library.name() + "'s history."); return; }
+        List<String> labels = new ArrayList<>(history);
+        labels.add("Clear recent searches…");
+        new AlertDialog.Builder(this).setTitle(library.name() + " · Recent searches")
+                .setItems(labels.toArray(new String[0]), (dialog, index) -> {
+                    if (index < history.size()) { query.setText(history.get(index)); search(); }
+                    else new AlertDialog.Builder(this).setTitle("Clear this profile's search history?")
+                            .setPositiveButton("Clear", (confirm, action) -> {
+                                if (!library.clearRecent()) message("Could not clear history", "Please try again.");
+                            }).setNegativeButton("Cancel", null).show();
+                }).setNegativeButton("Close", null).show();
+    }
+
+    private void watchlist() {
+        try {
+            List<Catalog.Title> saved = library.saved();
+            ++generation;
+            clearResults();
+            watchlistMode = true;
+            titles.addAll(saved);
+            adapter.notifyDataSetChanged();
+            status.setText(library.name() + " · Watchlist · " + saved.size() + " titles");
+            if (saved.isEmpty()) showEmpty("Your watchlist starts here", "Open a title and choose Save to watchlist.");
+            else { empty.setVisibility(View.GONE); results.setSelection(0); results.requestFocus(); }
+        } catch (IOException e) { message("Could not open watchlist", "The saved list could not be read. Your data has been kept."); }
+    }
+
+    private void randomPick() {
+        try {
+            List<Catalog.Title> candidates = library.saved();
+            if (candidates.isEmpty()) { message("Save a few titles first", "Pick for us chooses from " + library.name() + "'s watchlist."); return; }
+            if (candidates.size() > 1) candidates.removeIf(item -> item.identity().equals(lastPick));
+            Catalog.Title pick = candidates.get(new Random().nextInt(candidates.size()));
+            lastPick = pick.identity();
+            details(pick, true);
+        } catch (IOException e) { message("Could not choose a title", "The watchlist could not be read. Your data has been kept."); }
+    }
+
+    private void details(Catalog.Title item, boolean refresh) {
+        if (detailsDialog != null) detailsDialog.dismiss();
+        Dialog dialog = new Dialog(this, android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
+        detailsDialog = dialog;
+        int request = ++detailsGeneration, ticket = generation;
+        Catalog.Title[] current = {item};
+        boolean[] verified = {!refresh};
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(dp(40), dp(22), dp(40), dp(22));
+        page.setBackgroundColor(0xFF0B1421);
+        LinearLayout heading = new LinearLayout(this);
+        heading.setGravity(Gravity.CENTER_VERTICAL);
+        TextView name = text(item.name, 26);
+        name.setMaxLines(2); name.setEllipsize(TextUtils.TruncateAt.END);
+        heading.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+        heading.addView(button("Close", dialog::dismiss));
+        page.addView(heading);
+        LinearLayout body = new LinearLayout(this);
+        body.setPadding(0, dp(16), 0, dp(16));
+        LinearLayout artwork = new LinearLayout(this);
+        artwork.setOrientation(LinearLayout.VERTICAL);
+        ImageView poster = new ImageView(this);
+        poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        poster.setBackground(background(0xFF1C2A3C));
+        artwork.addView(poster, new LinearLayout.LayoutParams(dp(158), dp(237)));
+        posters.load(item.poster, poster);
+        TextView score = text("RT …", 15);
+        score.setPadding(0, dp(10), 0, dp(3));
+        artwork.addView(score);
+        TextView attribution = text("Rotten Tomatoes® critics\nData via OMDb", 11);
+        attribution.setTextColor(0xFFB8C8DB);
+        artwork.addView(attribution);
+        body.addView(artwork, new LinearLayout.LayoutParams(dp(180), -2));
+        ScrollView scroll = new ScrollView(this);
+        scroll.setPadding(dp(16), dp(10), dp(16), dp(10));
+        scroll.setBackground(controlBackground());
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        TextView meta = text("", 16);
+        meta.setTextColor(0xFFB8D7FF);
+        copy.addView(meta);
+        TextView synopsis = text("", 18);
+        synopsis.setPadding(0, dp(16), 0, dp(16));
+        synopsis.setLineSpacing(dp(3), 1);
+        copy.addView(synopsis);
+        TextView availability = text("", 15);
+        availability.setTextColor(0xFFB8C8DB);
+        copy.addView(availability);
+        scroll.addView(copy);
+        body.addView(scroll, new LinearLayout.LayoutParams(0, -1, 1));
+        page.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout actions = new LinearLayout(this);
+        Button where = button("Where to watch", () -> {
+            if (verified[0]) choose(current[0]);
+            else if (prefs.getString("key", "").isEmpty()) { dialog.dismiss(); setup(); }
+            else details(current[0], true);
+        });
+        Button save = button("Save to watchlist", () -> {});
+        save.setOnClickListener(view -> {
+            try {
+                boolean on = !library.contains(current[0]);
+                library.setSaved(current[0], on);
+                save.setText(on ? "Remove from watchlist" : "Save to watchlist");
+                if (watchlistMode) {
+                    titles.clear(); titles.addAll(library.saved()); adapter.notifyDataSetChanged();
+                    status.setText(library.name() + " · Watchlist · " + titles.size() + " titles");
+                    if (titles.isEmpty()) showEmpty("Your watchlist starts here", "Open a title and choose Save to watchlist.");
+                    else empty.setVisibility(View.GONE);
+                }
+            } catch (IOException e) { message("Could not update watchlist", e.getMessage()); }
+        });
+        try { if (library.contains(item)) save.setText("Remove from watchlist"); }
+        catch (IOException e) { save.setEnabled(false); }
+        actions.addView(where); actions.addView(save);
+        actions.addView(button("Pick for us", this::randomPick));
+        page.addView(actions);
+        dialog.setContentView(page);
+        dialog.setOnDismissListener(closed -> {
+            if (detailsDialog == dialog) { detailsDialog = null; ++detailsGeneration; }
+        });
+        dialog.show();
+        ratings.load(item.imdbId, score);
+        meta.setText(item.detail + (item.runtime > 0 ? " · " + item.runtime + " min" : "")
+                + (item.genres.isEmpty() ? "" : "\n" + item.genres));
+        synopsis.setText(item.overview.isEmpty() ? "No synopsis was provided by the catalog." : item.overview);
+        availability.setText(refresh ? "Checking current US subscription and free availability…" : availability(item));
+        where.requestFocus();
+        if (!refresh) return;
+        String key = prefs.getString("key", "");
+        if (key.isEmpty()) {
+            availability.setText("Add your catalog key in Search setup to check current availability.");
+            where.setText("Set up search"); return;
+        }
+        Set<String> services = selected();
+        where.setEnabled(false); where.setText("Checking…");
+        save.requestFocus();
+        io.execute(() -> {
+            try {
+                Catalog.Title fresh = Catalog.refresh(item, key, services);
+                ui.post(() -> {
+                    if (isDestroyed() || ticket != generation || request != detailsGeneration || !dialog.isShowing()) return;
+                    current[0] = fresh; verified[0] = true;
+                    name.setText(fresh.name);
+                    meta.setText(fresh.detail + (fresh.runtime > 0 ? " · " + fresh.runtime + " min" : "")
+                            + (fresh.genres.isEmpty() ? "" : "\n" + fresh.genres));
+                    synopsis.setText(fresh.overview.isEmpty() ? "No synopsis was provided by the catalog." : fresh.overview);
+                    availability.setText(availability(fresh));
+                    where.setEnabled(true); where.setText("Where to watch");
+                });
+            } catch (IOException e) {
+                ui.post(() -> {
+                    if (isDestroyed() || ticket != generation || request != detailsGeneration || !dialog.isShowing()) return;
+                    availability.setText("Could not verify availability. " + e.getMessage());
+                    where.setEnabled(true); where.setText("Retry availability");
+                });
+            }
+        });
+    }
+
+    private String availability(Catalog.Title item) {
+        List<String> labels = new ArrayList<>();
+        for (Catalog.Offer offer : item.offers) labels.add(offer.label());
+        return labels.isEmpty() ? "No listed US subscription or free offers on your selected services."
+                : "Where to watch · US\n" + String.join("\n", labels);
     }
 
     private void settings() {
@@ -393,7 +592,8 @@ public final class Search extends Activity {
             available.append(offer.label());
         }
         card.setContentDescription(item.name + ", " + item.detail + ", "
-                + (available.length() == 0 ? "Not listed on your selected services" : available));
+                + (watchlistMode ? "Saved title. Open details to check current availability."
+                : available.length() == 0 ? "Not listed on your selected services" : available));
         card.setTag(card.getContentDescription());
         FrameLayout art = new FrameLayout(this);
         art.setBackground(background(0xFF1C2A3C));
@@ -430,9 +630,9 @@ public final class Search extends Activity {
         LinearLayout badges = new LinearLayout(this);
         badges.setGravity(Gravity.CENTER_VERTICAL);
         badges.setPadding(dp(5), dp(5), dp(5), 0);
-        if (item.offers.isEmpty()) {
-            TextView unavailable = text("Not on your services", 10);
-            unavailable.setTextColor(0xFFD9BC9A);
+        if (watchlistMode || item.offers.isEmpty()) {
+            TextView unavailable = text(watchlistMode ? "Check availability" : "Not on your services", 10);
+            unavailable.setTextColor(watchlistMode ? 0xFFB8D7FF : 0xFFD9BC9A);
             badges.addView(unavailable);
         } else {
             Catalog.Offer first = item.offers.get(0);
@@ -506,6 +706,7 @@ public final class Search extends Activity {
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
     @Override protected void onDestroy() {
-        ++generation; io.shutdownNow(); posters.close(); if (ratings != null) ratings.close(); super.onDestroy();
+        ++generation; if (detailsDialog != null) detailsDialog.dismiss();
+        io.shutdownNow(); posters.close(); if (ratings != null) ratings.close(); super.onDestroy();
     }
 }

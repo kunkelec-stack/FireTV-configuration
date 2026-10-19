@@ -27,6 +27,47 @@ cannot be turned off in this version.
 
 ## Results and limitations
 
+### Details, profiles, watchlists, and history
+
+Select a poster to open a full-screen title page with synopsis, year/type,
+runtime and genres when provided, critics score, and **Where to watch**.
+Provider selection and unsupported-link fallback are retained behind that button.
+Back or Close returns to the previous grid. Long descriptions scroll with the remote.
+
+The profile button switches between **Together**, **Evan**, and **Emma**.
+Each profile has its own watchlist, latest 20 unique recent searches, and service
+filters. API keys and the ratings cache are shared privately on this TV. Existing
+service selections are used as initial defaults. These are local discovery
+profiles; switching does not change streaming-service accounts, launcher app
+order, or appearance preferences and does not provide parental access control.
+
+**Recent** displays only the active profile's submitted searches. Selecting one
+submits it again. Clearing history asks for confirmation and affects that profile.
+Browsing history makes no catalog request. No search history is uploaded for analytics.
+
+**Save to watchlist** and **Remove from watchlist** work on the details page.
+Up to 100 titles per profile are stored in private preferences with a bounded
+metadata snapshot. Availability links are excluded from snapshots. Saved cards
+say **Check availability**; opening a saved title makes one catalog request by
+exact show/IMDb ID to refresh current US subscription/free offers before enabling
+provider links. Refresh errors keep the saved metadata and offer Retry; stale
+offers are never silently reused. Metadata remains readable offline. Unsupported
+or removed IDs prompt a new search rather than guessing another title.
+
+**Pick for us** chooses from the active profile's watchlist and opens that title's
+details with current availability checking. It avoids repeating the previous
+pick when at least two different titles exist. It does not play or purchase
+anything automatically and does not promise the chosen title is still available.
+The details page also offers Pick for us to choose again. Repeated picks each
+trigger a catalog lookup, independent of OMDb's ratings cache.
+
+A small original tomato illustration accompanies known critics percentages.
+It is a generic indicator, not an official Fresh, Rotten, or Certified Fresh logo.
+Official marks are not inferred from the numeric score. Missing/error/key-setup
+states have no tomato indicator. Official logo use would also need the applicable
+assets and matching RT title links described in the
+[Rotten Tomatoes brand guidance](https://www.rottentomatoes.com/help_desk/licensing).
+
 The screen shares EVMA's bundled wallpaper with a dark overlay, a translucent
 search field, and a responsive poster grid. Remote selection highlights each
 card; titles, release years, and service badges stay visible. A `+N` badge means
