@@ -48,7 +48,6 @@ public final class Search extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = getSharedPreferences("catalog", MODE_PRIVATE);
-        getExternalFilesDir(null); // Creates the single-use ADB provisioning directory.
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setPadding(dp(48), dp(24), dp(48), dp(20));

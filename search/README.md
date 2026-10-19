@@ -71,9 +71,10 @@ is added. Weather data attribution is displayed on the card.
 
 For the local Windows updater, an explicitly supplied personal catalog key can
 be staged in the git-ignored `report/private/catalog-key.once`. The updater
-transfers it into the companion's own external-files directory, then invokes
-the `.Provision` activity, which requires the system `DUMP` permission held by
-ADB shell. The importer validates the input, deletes the TV transfer file, and
-saves the key in private preferences. After success, the updater removes its
-local single-use file too. Keys are never included in source, APKs, intent
-extras, command arguments, logs, or status files. Cleanup failures are reported.
+streams it through ADB standard input to a content provider restricted to ADB
+shell (UID 2000) and the system `DUMP` permission. The provider validates at most
+4096 bytes and saves the key in private preferences. This avoids external-storage
+access, which Fire OS can deny. Only a status value can be queried; the provider
+never returns the key. After confirmed success, the updater removes its local
+single-use file. Keys are never included in source, APKs, intent extras, command
+arguments, logs, status output, or temporary files on the TV.

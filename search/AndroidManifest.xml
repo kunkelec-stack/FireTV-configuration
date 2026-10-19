@@ -13,8 +13,8 @@
             </intent-filter>
         </activity>
         <service android:name=".WeatherService" android:exported="true" />
-        <activity android:name=".Provision" android:exported="true"
-            android:permission="android.permission.DUMP" android:theme="@android:style/Theme.NoDisplay"
-            android:excludeFromRecents="true" />
+        <provider android:name=".KeyProvider" android:authorities="tv.evma.search.provision"
+            android:exported="true" android:permission="android.permission.DUMP"
+            android:grantUriPermissions="false" />
     </application>
 </manifest>
