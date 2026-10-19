@@ -6,8 +6,12 @@ EVMA's top navigation contains **Search movies & shows**, **Inputs**, and
 **Settings**. The app row stays below the welcome message. Search opens the
 optional [search companion](../search/README.md), which needs its own catalog
 API key and has Internet permission. The home launcher itself stays offline.
-The same companion supplies a Fairfield, Ohio weather card beside the welcome
-area. It uses Open-Meteo, requires no weather key, and labels cached readings.
+The same companion supplies a compact weather line underneath the enlarged
+top-right clock and date: `Fairfield, OH` followed by the weather symbol and
+Fahrenheit temperature. It uses Open-Meteo and requires no weather key.
+Stale readings and failures show a dash rather than an old temperature as current;
+the accessibility description/tooltip includes conditions and last update details.
+Weather attribution is included in Settings and the weather description.
 Focusing an app replaces the greeting with a short local description; focusing
 the top navigation restores the greeting. These descriptions make no catalog calls.
 Use **Settings → App order** to select an app and move it earlier, later, first,

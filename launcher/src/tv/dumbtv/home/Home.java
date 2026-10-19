@@ -65,11 +65,12 @@ public final class Home extends Activity {
     private View shade;
     private TextView clock, date;
     private TextView eyebrow, headline, description;
-    private TextView weatherTemperature, weatherCondition, weatherCaption;
+    private TextView weatherLine;
     private Messenger weatherRemote;
     private boolean weatherBound, weatherCached;
     private long weatherObserved;
     private String weatherRange = "";
+    private String weatherValue = "—", weatherCondition = "Checking weather";
     private Row apps;
     private List<Item> inputItems = new ArrayList<>();
     private Tile moving;
@@ -77,8 +78,7 @@ public final class Home extends Activity {
 
     private final Runnable weatherTimeout = () -> {
         if (weatherObserved == 0 && !isDestroyed()) {
-            weatherCondition.setText("Weather unavailable");
-            weatherCaption.setText("Will retry when you return home");
+            weatherUnavailable();
         }
     };
 
@@ -87,16 +87,14 @@ public final class Home extends Activity {
         ui.removeCallbacks(weatherTimeout);
         Bundle data = message.getData();
         if (data.getBoolean("ok")) {
-            weatherTemperature.setText(data.getString("temperature", "—"));
-            weatherCondition.setText(data.getString("condition", ""));
+            weatherValue = data.getString("temperature", "—");
+            weatherCondition = data.getString("condition", "");
             weatherObserved = data.getLong("observedAt");
             weatherCached = data.getBoolean("cached");
             weatherRange = data.getString("range", "");
             updateWeatherAge();
         } else if (weatherObserved == 0) {
-            weatherTemperature.setText("— °F");
-            weatherCondition.setText("Weather unavailable");
-            weatherCaption.setText("Will retry when you return home");
+            weatherUnavailable();
         } else {
             weatherCached = true;
             updateWeatherAge();
@@ -375,14 +373,21 @@ public final class Home extends Activity {
         LinearLayout when = new LinearLayout(this);
         when.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         when.setOrientation(LinearLayout.VERTICAL);
-        clock = Ui.text(this, 20, Ui.TEXT, Ui.MEDIUM);
+        clock = Ui.text(this, 30, Ui.TEXT, Ui.MEDIUM);
         clock.setGravity(Gravity.END);
-        date = Ui.text(this, 12, Ui.MUTED, Ui.MEDIUM);
+        date = Ui.text(this, 16, Ui.MUTED, Ui.MEDIUM);
         date.setGravity(Gravity.END);
         date.setPadding(0, dp(5), 0, 0);
         when.addView(clock);
         when.addView(date);
-        head.addView(when, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        weatherLine = Ui.text(this, 17, Ui.TEXT, Ui.MEDIUM);
+        weatherLine.setGravity(Gravity.END);
+        weatherLine.setSingleLine(true);
+        weatherLine.setPadding(0, dp(7), 0, 0);
+        weatherLine.setText("Fairfield, OH  —");
+        weatherLine.setContentDescription("Fairfield, Ohio. Checking weather. Weather by Open-Meteo.");
+        when.addView(weatherLine);
+        head.addView(when, new LinearLayout.LayoutParams(dp(240), WRAP));
         column.addView(head, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         LinearLayout welcome = new LinearLayout(this);
@@ -412,29 +417,6 @@ public final class Home extends Activity {
         details.addView(description);
         welcome.addView(details, new LinearLayout.LayoutParams(0, WRAP, 1f));
 
-        LinearLayout weather = new LinearLayout(this);
-        weather.setOrientation(LinearLayout.VERTICAL);
-        weather.setPadding(dp(18), dp(16), dp(18), dp(14));
-        weather.setBackground(Ui.round(0xAA101B2A, dp(16)));
-        TextView city = Ui.text(this, 12, Ui.MUTED, Ui.MEDIUM);
-        city.setText("FAIRFIELD, OH");
-        weather.addView(city);
-        weatherTemperature = Ui.text(this, 27, Ui.TEXT, Ui.MEDIUM);
-        weatherTemperature.setText("— °F");
-        weatherTemperature.setPadding(0, dp(9), 0, dp(6));
-        weather.addView(weatherTemperature);
-        weatherCondition = Ui.text(this, 14, Ui.TEXT, Ui.MEDIUM);
-        weatherCondition.setText("Checking weather…");
-        weather.addView(weatherCondition);
-        weatherCaption = Ui.text(this, 11, Ui.MUTED, Ui.MEDIUM);
-        weatherCaption.setPadding(0, dp(8), 0, 0);
-        weatherCaption.setMinLines(2);
-        weather.addView(weatherCaption);
-        TextView weatherSource = Ui.text(this, 10, Ui.MUTED, Ui.MEDIUM);
-        weatherSource.setText("Weather by Open-Meteo");
-        weatherSource.setPadding(0, dp(4), 0, 0);
-        weather.addView(weatherSource);
-        welcome.addView(weather, new LinearLayout.LayoutParams(dp(210), WRAP));
         column.addView(welcome, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         apps = new Row(Catalog.APPS, "Apps", column);
@@ -626,7 +608,7 @@ public final class Home extends Activity {
             Intent intent = new Intent().setClassName("tv.evma.search", "tv.evma.search.WeatherService");
             weatherBound = bindService(intent, weatherConnection, Context.BIND_AUTO_CREATE);
         } catch (SecurityException | IllegalArgumentException ignored) { weatherBound = false; }
-        if (!weatherBound && weatherObserved == 0) weatherCondition.setText("Weather unavailable");
+        if (!weatherBound && weatherObserved == 0) weatherUnavailable();
         if (weatherBound) ui.postDelayed(weatherTimeout, 25000);
     }
 
@@ -646,7 +628,18 @@ public final class Home extends Activity {
         if (weatherObserved == 0) return;
         boolean stale = weatherCached || System.currentTimeMillis() - weatherObserved > 40 * 60 * 1000L;
         String updated = DateFormat.format("h:mm a", new Date(weatherObserved)).toString();
-        weatherCaption.setText(weatherRange + "\n" + (stale ? "Cached · " : "Updated ") + updated);
+        weatherLine.setText("Fairfield, OH  " + (stale ? "—" : weatherValue));
+        String detail = (stale ? "Current weather unavailable. Last reading: " : "")
+                + weatherCondition + ", " + weatherValue + ", " + weatherRange + ". Updated "
+                + updated + ". Weather by Open-Meteo.";
+        weatherLine.setContentDescription("Fairfield, Ohio. " + detail);
+        weatherLine.setTooltipText(detail);
+    }
+
+    private void weatherUnavailable() {
+        weatherLine.setText("Fairfield, OH  —");
+        weatherLine.setContentDescription("Fairfield, Ohio. Weather unavailable. Weather by Open-Meteo.");
+        weatherLine.setTooltipText("Weather unavailable. Will retry while home is visible. Weather by Open-Meteo.");
     }
 
     private void tick() {

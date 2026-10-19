@@ -68,6 +68,7 @@ public final class Options extends Activity {
         about.setPadding(dp(16), dp(28), 0, 0);
         about.setText("Settings file: " + cfg.dir + "/" + Config.FILE
                 + "\nWallpaper: the bundled image is included. Put wallpaper.jpg in that folder to use your own."
+                + "\nWeather: Open-Meteo (open-meteo.com), CC BY 4.0, via the optional search companion."
                 + "\nNo internet permission. No tracking, no ads, no accounts.");
         list.addView(about);
 
@@ -123,128 +124,47 @@ public final class Options extends Activity {
     }
 
     private boolean step(Config.Choice c, int by) {
-        int i = Arrays.asList(c.values).indexOf(cfg.get(c));
-        int n = c.values.length;
-        cfg.set(c.key, c.values[((i + by) % n + n) % n]);
-        refresh();
-        return true;
-    }
+        int i = Arrays.asList(c.values)…2800 tokens truncated…, and catalog
+  removals may differ from the results. Live searches cannot be validated without
+  a working API key. API results are not proof of the user's subscription entitlement.
 
-    private View action(String text, Runnable run) {
-        LinearLayout row = row();
-        row.addView(label(text), new LinearLayout.LayoutParams(0, WRAP, 1f));
-        TextView chevron = Ui.text(this, 16, Ui.MUTED, Ui.MEDIUM);
-        chevron.setText("›");
-        row.addView(chevron);
-        row.setOnClickListener(v -> run.run());
-        refreshers.add(() -> style(row));
-        return row;
-    }
+## Build and recovery
 
-    private LinearLayout row() {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setFocusable(true);
-        row.setClickable(true);
-        row.setPadding(dp(16), dp(14), dp(16), dp(14));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(600), WRAP);
-        lp.bottomMargin = dp(4);
-        row.setLayoutParams(lp);
-        return row;
-    }
+Use JDK 17, Android API 28 and build-tools as described in `../launcher/README.md`.
+Run `bash search/build.sh` from the repository root; no Gradle is needed.
+The companion APK is `search/build/evma-search.apk`. Keep its signing key for updates.
+Install it with ADB separately; building never installs or changes HOME behavior.
 
-    private void style(View row) {
-        StateListDrawable bg = new StateListDrawable();
-        bg.addState(new int[] {android.R.attr.state_focused},
-                Ui.round((cfg.accent() & 0x00FFFFFF) | 0x33000000, dp(10)));
-        bg.addState(new int[0], Ui.round(0x00000000, dp(10)));
-        row.setBackground(bg);
-    }
+The search manifest declares no HOME intent filter or accessibility service.
+Back returns to EVMA. Amazon remains the preview's HOME target. Rolling back the
+launcher APK does not require removing the search app or changing streaming apps.
+Uninstalling the search app deletes its own API key and service settings.
 
-    private TextView label(String text) {
-        TextView v = Ui.text(this, 16, Ui.TEXT, Ui.MEDIUM);
-        v.setText(text);
-        return v;
-    }
+## Fairfield weather and automatic key setup
 
-    private View gap() {
-        View v = new View(this);
-        v.setLayoutParams(new LinearLayout.LayoutParams(1, dp(18)));
-        return v;
-    }
+The companion also provides Fairfield, Ohio weather to the home screen through
+a bound Messenger service. Requests are accepted only from the installed
+`tv.dumbtv.home` package when it has the same signing certificate. Build the
+launcher first; both APKs must use the same private signing key.
 
-    private void pick(String kind) {
-        List<Item> items = Catalog.APPS.equals(kind)
-                ? Catalog.apps(this)
-                : Catalog.inputs(this, (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE));
-        CharSequence[] names = new CharSequence[items.size()];
-        boolean[] on = new boolean[items.size()];
-        for (int i = 0; i < items.size(); i++) {
-            names[i] = Catalog.label(cfg, items.get(i));
-            on[i] = Catalog.shown(cfg, kind, items.get(i));
-        }
-        new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle(Catalog.APPS.equals(kind) ? "Apps on home screen" : "Inputs in menu")
-                .setMultiChoiceItems(names, on, (d, which, checked) ->
-                        Catalog.setShown(cfg, kind, items.get(which), checked))
-                .setPositiveButton("Done", null)
-                .show();
-    }
+Weather uses the [Open-Meteo API](https://open-meteo.com/en/docs), fixed Fairfield
+city-center coordinates, Fahrenheit, and America/New_York time. It needs no API
+key or location permission and does not consume movie-search requests. Successful
+responses are cached for 20 minutes. Failures are rate-limited, and an older
+reading is labeled cached rather than presented as freshly fetched weather.
+The launcher binds only while visible; no always-running or foreground service
+is added. Weather data attribution is displayed on the card.
 
-    private void openTvSettings() {
-        Intent leanback = new Intent(Intent.ACTION_MAIN)
-                .addCategory("android.intent.category.LEANBACK_SETTINGS");
-        try {
-            Intent target = leanback.resolveActivity(getPackageManager()) != null
-                    ? leanback : new Intent(Settings.ACTION_SETTINGS);
-            startActivity(target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
-                    | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED));
-        } catch (ActivityNotFoundException | SecurityException e) {
-            Toast.makeText(this, "Could not open TV settings", Toast.LENGTH_SHORT).show();
-        }
-    }
+Manual setup is the active Windows workflow. APK updates use `install -r` to
+preserve the key and selected services; do not uninstall or clear app data.
+The preview updater does not attempt automatic key transfer. The following
+optional developer import endpoint remains available but is not used by updates.
 
-    private void orderApps(int focus) {
-        List<Item> items = Catalog.visible(cfg, Catalog.APPS, Catalog.apps(this));
-        if (items.isEmpty()) {
-            new AlertDialog.Builder(this, Ui.DIALOG).setTitle("App order")
-                    .setMessage("Show some apps using Apps on home screen first.")
-                    .setPositiveButton("OK", null).show();
-            return;
-        }
-        CharSequence[] names = new CharSequence[items.size()];
-        for (int i = 0; i < items.size(); i++) names[i] = (i + 1) + ". " + Catalog.label(cfg, items.get(i));
-        new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle("App order · Choose an app to move")
-                .setSingleChoiceItems(names, Math.min(focus, items.size() - 1), (dialog, which) -> {
-                    dialog.dismiss();
-                    new AlertDialog.Builder(this, Ui.DIALOG)
-                            .setTitle(Catalog.label(cfg, items.get(which)))
-                            .setItems(new String[] {"Move earlier", "Move later", "Move to first", "Move to last"},
-                                    (moveDialog, action) -> {
-                                        int target = action == 0 ? Math.max(0, which - 1)
-                                                : action == 1 ? Math.min(items.size() - 1, which + 1)
-                                                : action == 2 ? 0 : items.size() - 1;
-                                        List<String> ids = new ArrayList<>();
-                                        for (Item item : Order.move(items, which, target)) ids.add(item.id);
-                                        Catalog.saveOrder(cfg, Catalog.APPS, ids);
-                                        orderApps(target);
-                                    })
-                            .setNegativeButton("Back", (moveDialog, action) -> orderApps(which))
-                            .show();
-                }).setNegativeButton("Done", null).show();
-    }
-
-    private void reset() {
-        new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle("Reset the home screen layout?")
-                .setMessage("Order, names and hidden tiles go back to default. Colors and sizes stay.")
-                .setPositiveButton("Reset", (d, w) -> cfg.removePrefix("name.", "apps.", "inputs."))
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private int dp(float v) {
-        return Ui.dp(this, v);
-    }
-}
+The optional developer endpoint accepts ADB standard input through a content provider restricted to ADB
+shell (UID 2000) and the system `DUMP` permission. The provider validates at most
+4096 bytes and saves the key in private preferences. This avoids external-storage
+access, which Fire OS can deny. Only a status value can be queried; the provider
+never returns the key. Any existing PC staging file remains in the ignored
+`report/private/` folder; the current update scripts do not read it.
+Keys are never included in source, APKs, intent extras, command
+arguments, logs, status output, or temporary files on the TV.

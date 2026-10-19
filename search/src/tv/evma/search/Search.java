@@ -53,6 +53,7 @@ public final class Search extends Activity {
     private LinearLayout empty;
     private final List<Catalog.Title> titles = new ArrayList<>();
     private final Posters posters = new Posters();
+    private Ratings ratings;
     private final BaseAdapter adapter = new BaseAdapter() {
         @Override public int getCount() { return titles.size(); }
         @Override public Object getItem(int position) { return titles.get(position); }
@@ -66,6 +67,7 @@ public final class Search extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = getSharedPreferences("catalog", MODE_PRIVATE);
+        ratings = new Ratings(this);
         FrameLayout root = new FrameLayout(this);
         ImageView wallpaper = new ImageView(this);
         wallpaper.setImageResource(R.drawable.wallpaper);
@@ -157,7 +159,7 @@ public final class Search extends Activity {
         empty.addView(emptyDetail);
         content.addView(empty, new FrameLayout.LayoutParams(-1, -1));
         column.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView source = text("Movie of the Night · US subscription & free · Availability varies by service and season", 11);
+        TextView source = text("Availability: Movie of the Night · US subscription & free · RT critics scores via OMDb · Scores may be missing", 11);
         source.setTextColor(0x99FFFFFF);
         column.addView(source);
         root.addView(column, new FrameLayout.LayoutParams(-1, -1));
@@ -330,14 +332,45 @@ public final class Search extends Activity {
 
     private void settings() {
         new AlertDialog.Builder(this).setTitle("Search settings")
-                .setItems(new String[] {"Your streaming services", "Search setup"}, (dialog, which) -> {
-                    if (which == 0) services(); else setup();
+                .setItems(new String[] {"Your streaming services", "Search setup", "Rotten Tomatoes setup"}, (dialog, which) -> {
+                    if (which == 0) services(); else if (which == 1) setup(); else ratingsSetup();
                 }).setNegativeButton("Close", null).show();
+    }
+
+    private void ratingsSetup() {
+        EditText key = new EditText(this);
+        key.setSingleLine(true);
+        key.setHint("OMDb API key");
+        key.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        key.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        key.setPadding(dp(24), dp(12), dp(24), dp(12));
+        new AlertDialog.Builder(this).setTitle("Rotten Tomatoes scores")
+                .setMessage("Get a separate key at omdbapi.com/apikey.aspx and activate it by email. "
+                        + "OMDb receives the IMDb IDs of visible titles to check their Rotten Tomatoes critics scores. "
+                        + "Coverage is incomplete, especially for TV series; these are not audience or season-specific scores. "
+                        + "Your Movie of the Night key is separate. Leave blank to keep your saved OMDb key.")
+                .setView(key)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    String value = key.getText().toString().trim();
+                    if (value.isEmpty()) return;
+                    if (value.length() > 256 || !value.matches("[a-zA-Z0-9]+")) {
+                        status.setText("Copy the OMDb key exactly, using letters and numbers only."); return;
+                    }
+                    prefs.edit().putString("ratingsKey", value).apply();
+                    ratings.reset();
+                    adapter.notifyDataSetChanged();
+                    status.setText("Ratings key saved. Scores will load for visible posters.");
+                }).setNeutralButton("Remove key", (dialog, which) -> {
+                    prefs.edit().remove("ratingsKey").apply();
+                    ratings.reset(); adapter.notifyDataSetChanged();
+                    status.setText("Ratings disabled. Movie search is still available.");
+                }).setNegativeButton("Cancel", null).show();
     }
 
     private void clearResults() {
         progress.setVisibility(View.GONE);
         posters.cancelPending();
+        ratings.reset();
         titles.clear();
         adapter.notifyDataSetChanged();
     }
@@ -361,6 +394,7 @@ public final class Search extends Activity {
         }
         card.setContentDescription(item.name + ", " + item.detail + ", "
                 + (available.length() == 0 ? "Not listed on your selected services" : available));
+        card.setTag(card.getContentDescription());
         FrameLayout art = new FrameLayout(this);
         art.setBackground(background(0xFF1C2A3C));
         art.setClipToOutline(true);
@@ -373,7 +407,14 @@ public final class Search extends Activity {
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         art.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        TextView score = text("RT …", 11);
+        score.setPadding(dp(8), dp(4), dp(8), dp(4));
+        score.setBackground(background(0xED0B1421));
+        FrameLayout.LayoutParams scoreLayout = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
+        scoreLayout.setMargins(dp(7), 0, dp(7), dp(7));
+        art.addView(score, scoreLayout);
         card.addView(art, new LinearLayout.LayoutParams(-1, dp(192)));
+        ratings.load(item.imdbId, score);
         posters.load(item.poster, image);
         TextView name = text(item.name, 15);
         name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
@@ -465,6 +506,6 @@ public final class Search extends Activity {
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
     @Override protected void onDestroy() {
-        ++generation; io.shutdownNow(); posters.close(); super.onDestroy();
+        ++generation; io.shutdownNow(); posters.close(); if (ratings != null) ratings.close(); super.onDestroy();
     }
 }

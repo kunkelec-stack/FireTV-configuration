@@ -36,10 +36,10 @@ final class Catalog {
     }
 
     static final class Title {
-        final String name, detail, poster;
+        final String name, detail, poster, imdbId;
         final List<Offer> offers;
-        Title(String name, String detail, String poster, List<Offer> offers) {
-            this.name = name; this.detail = detail; this.poster = poster; this.offers = offers;
+        Title(String name, String detail, String poster, String imdbId, List<Offer> offers) {
+            this.name = name; this.detail = detail; this.poster = poster; this.imdbId = imdbId; this.offers = offers;
         }
     }
 
@@ -120,7 +120,9 @@ final class Catalog {
                 JSONObject vertical = images == null ? null : images.optJSONObject("verticalPoster");
                 String poster = vertical == null ? "" : vertical.optString("w240", "");
                 if (poster.isEmpty() && vertical != null) poster = vertical.optString("w360", "");
-                titles.add(new Title(name, detail, poster, new ArrayList<>(offers.values())));
+                String imdbId = show.optString("imdbId", "");
+                if (!imdbId.matches("tt[0-9]{7,10}")) imdbId = "";
+                titles.add(new Title(name, detail, poster, imdbId, new ArrayList<>(offers.values())));
             }
             return titles;
         } catch (JSONException e) {

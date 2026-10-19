@@ -34,6 +34,35 @@ additional services are available in the title's provider picker. Cards with no
 matching offer remain selectable and explain the scoped availability result.
 Loading, no matches, and network/catalog errors have separate screen states.
 
+### Rotten Tomatoes critics scores
+
+Open **Settings → Rotten Tomatoes setup** to enter a separate, email-activated
+[OMDb API key](https://www.omdbapi.com/apikey.aspx). This is independent of the
+Movie of the Night key. The free OMDb signup currently lists 1,000 daily requests;
+check the signup page for current limits. Scores are optional and use no new
+Android permissions. Removing this key disables ratings without disabling search.
+
+Visible poster cards request OMDb metadata by the exact IMDb ID supplied by the
+catalog. Only `Ratings` entries whose `Source` is `Rotten Tomatoes` and whose
+value is a valid percentage are shown. The returned IMDb ID must match. These
+are critics scores supplied by OMDb, not audience scores or the catalog's own
+rating. A show-level score must not be treated as a score for every season.
+Many series and some movies have no returned RT score: the badge then says
+`RT —`. Missing IMDb IDs also show `RT —` with an explanatory description.
+Key, quota, and lookup errors use distinct badge messages rather than a zero.
+
+Two background workers load ratings without delaying search results or provider
+links. Positive scores are cached privately for seven days; confirmed missing
+scores for one day. The cache is capped at 256 IDs. Failed lookups are not cached.
+Repeated cards for an ID share a pending request. A key/quota rejection pauses
+further new requests until the next explicit search or settings change.
+
+OMDb receives IMDb IDs over HTTPS. It requires its key in the URL query; the
+app never logs that URL or raw lookup exceptions. The key is stored only in the
+companion's private preferences and is not sent to image hosts, weather,
+Movie of the Night, or streaming apps. No title guessing or website scraping is
+used to fill missing scores. Live score validation requires the user's OMDb key.
+
 Poster URLs come from the search response (`imageSet.verticalPoster.w240`, with
 `w360` fallback), so artwork needs no additional catalog lookup. Public image
 hosts receive HTTPS image requests without the catalog key. Two workers, bounded
