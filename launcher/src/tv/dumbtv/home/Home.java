@@ -57,7 +57,8 @@ public final class Home extends Activity {
     private ImageView wall;
     private View shade;
     private TextView clock, date;
-    private Row apps, inputs;
+    private Row apps;
+    private List<Item> inputItems = new ArrayList<>();
     private Tile moving;
     private String wallKey;
 
@@ -285,13 +286,16 @@ public final class Home extends Activity {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setPadding(dp(56), 0, dp(56), dp(12));
         TextView brand = Ui.text(this, 21, Ui.TEXT, Ui.MEDIUM);
-        brand.setText("dumbtv");
+        brand.setText("EVMA \u2764\uFE0F");
         head.addView(brand, new LinearLayout.LayoutParams(0, WRAP, 1f));
 
         LinearLayout nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
-        nav.addView(chip("Home", v -> focusFirst()));
-        nav.addView(chip("Apps", v -> focusApps()));
+        TextView searchBar = chip("Search movies & shows", v -> openSearch());
+        searchBar.setMinWidth(dp(245));
+        searchBar.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        nav.addView(searchBar);
+        nav.addView(chip("Inputs", v -> showInputs()));
         nav.addView(chip("Settings", v -> startActivity(new Intent(this, Options.class))));
         head.addView(nav);
 
@@ -316,17 +320,16 @@ public final class Home extends Activity {
         eyebrow.setLetterSpacing(0.18f);
         welcome.addView(eyebrow);
         TextView title = Ui.text(this, 36, Ui.TEXT, Ui.LIGHT);
-        title.setText("Everything you want to watch");
+        title.setText("Hello Evan & Emma");
         title.setPadding(0, dp(14), 0, 0);
         welcome.addView(title);
         TextView subtitle = Ui.text(this, 16, Ui.MUTED, Ui.MEDIUM);
-        subtitle.setText("All the apps you want on your home screen.");
+        subtitle.setText("Make yourself at home.");
         subtitle.setPadding(0, dp(10), 0, 0);
         welcome.addView(subtitle);
         column.addView(welcome, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         apps = new Row(Catalog.APPS, "Apps", column);
-        inputs = new Row(Catalog.INPUTS, "Inputs", column);
         return root;
     }
 
@@ -372,7 +375,6 @@ public final class Home extends Activity {
         int accent = cfg.accent();
         for (TextView c : chips) Ui.focusStyle(c, accent, 0x14FFFFFF, dp(18));
         render(apps);
-        render(inputs);
         background();
         tick();
     }
@@ -400,8 +402,24 @@ public final class Home extends Activity {
     }
 
     private void loadInputs() {
-        inputs.all = Catalog.inputs(this, tv);
-        render(inputs);
+        inputItems = Catalog.inputs(this, tv);
+    }
+
+    private void showInputs() {
+        loadInputs();
+        List<Item> shown = Catalog.visible(cfg, Catalog.INPUTS, inputItems);
+        if (shown.isEmpty()) {
+            Toast.makeText(this, "No inputs to show. Check Inputs in menu in Settings.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        CharSequence[] names = new CharSequence[shown.size()];
+        for (int i = 0; i < shown.size(); i++) names[i] = Catalog.label(cfg, shown.get(i));
+        new AlertDialog.Builder(this, Ui.DIALOG)
+                .setTitle("Inputs")
+                .setItems(names, (dialog, which) -> launch(new Intent(shown.get(which).intent), null))
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void render(Row row) {
@@ -411,8 +429,7 @@ public final class Home extends Activity {
                 ? ((Tile) focused).item.id : null;
         row.strip.removeAllViews();
 
-        boolean enabled = !Catalog.INPUTS.equals(row.kind) || "on".equals(cfg.get(Config.INPUTS));
-        List<Item> shown = enabled ? Catalog.visible(cfg, row.kind, row.all) : new ArrayList<>();
+        List<Item> shown = Catalog.visible(cfg, row.kind, row.all);
         int[] size = cardSize();
         int w = size[0], h = Catalog.APPS.equals(row.kind) ? size[1] : Math.round(size[1] * 0.56f);
         String labels = cfg.get(Config.LABELS);
@@ -465,19 +482,14 @@ public final class Home extends Activity {
 
     private void focusFirst() {
         apps.scroll.scrollTo(0, 0);
-        inputs.scroll.scrollTo(0, 0);
         View first = apps.strip.getChildAt(0);
-        if (first == null) first = inputs.strip.getChildAt(0);
         landed = apps.strip.getChildCount() > 0;
         if (first == null) first = chips.get(0);
         first.requestFocus();
     }
 
-    private void focusApps() {
-        apps.scroll.scrollTo(0, 0);
-        View first = apps.strip.getChildAt(0);
-        if (first == null) first = chips.get(0);
-        first.requestFocus();
+    private void openSearch() {
+        launch(new Intent("tv.evma.search.SEARCH").setPackage("tv.evma.search"), null);
     }
 
     private void tick() {
@@ -501,10 +513,14 @@ public final class Home extends Activity {
         File file = image ? cfg.wallpaper() : null;
         root.setBackgroundColor(cfg.background());
         int dim = Integer.parseInt(cfg.get(Config.DIM));
-        shade.setBackgroundColor(file == null ? Color.TRANSPARENT : Color.argb(dim * 255 / 100, 0, 0, 0));
-        String key = file == null ? null : file.getPath() + ":" + file.lastModified();
+        shade.setBackgroundColor(image ? Color.argb(dim * 255 / 100, 0, 0, 0) : Color.TRANSPARENT);
+        String key = file == null ? (image ? "bundled" : null) : file.getPath() + ":" + file.lastModified();
         if (key == null ? wallKey == null : key.equals(wallKey)) return;
         wallKey = key;
+        if ("bundled".equals(key)) {
+            wall.setImageResource(R.drawable.wallpaper);
+            return;
+        }
         if (file == null) {
             wall.setImageDrawable(null);
             return;
@@ -573,7 +589,7 @@ public final class Home extends Activity {
                             break;
                         case 2:
                             Catalog.setShown(cfg, t.kind, t.item, false);
-                            render(app ? apps : inputs);
+                            render(apps);
                             Toast.makeText(this, "Hidden. Bring it back from Options.", Toast.LENGTH_SHORT).show();
                             break;
                         default:

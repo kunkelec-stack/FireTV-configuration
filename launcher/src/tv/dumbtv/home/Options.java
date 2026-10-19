@@ -54,7 +54,7 @@ public final class Options extends Activity {
         for (Config.Choice c : Config.CHOICES) list.addView(choice(c));
         list.addView(gap());
         list.addView(action("Apps on home screen", () -> pick(Catalog.APPS)));
-        list.addView(action("Inputs on home screen", () -> pick(Catalog.INPUTS)));
+        list.addView(action("Inputs in menu", () -> pick(Catalog.INPUTS)));
         list.addView(action("Open Fire TV settings", this::openTvSettings));
         list.addView(action("Reset order, names and hidden tiles", this::reset));
         list.addView(action("Open Amazon's home screen", () -> {
@@ -66,7 +66,7 @@ public final class Options extends Activity {
         about.setLineSpacing(0, 1.4f);
         about.setPadding(dp(16), dp(28), 0, 0);
         about.setText("Settings file: " + cfg.dir + "/" + Config.FILE
-                + "\nWallpaper: put wallpaper.jpg in that folder, then pick Background › Image file"
+                + "\nWallpaper: the bundled image is included. Put wallpaper.jpg in that folder to use your own."
                 + "\nNo internet permission. No tracking, no ads, no accounts.");
         list.addView(about);
 
@@ -183,7 +183,7 @@ public final class Options extends Activity {
             on[i] = Catalog.shown(cfg, kind, items.get(i));
         }
         new AlertDialog.Builder(this, Ui.DIALOG)
-                .setTitle(Catalog.APPS.equals(kind) ? "Apps on home screen" : "Inputs on home screen")
+                .setTitle(Catalog.APPS.equals(kind) ? "Apps on home screen" : "Inputs in menu")
                 .setMultiChoiceItems(names, on, (d, which, checked) ->
                         Catalog.setShown(cfg, kind, items.get(which), checked))
                 .setPositiveButton("Done", null)

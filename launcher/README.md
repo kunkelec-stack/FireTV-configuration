@@ -2,6 +2,11 @@
 
 A home screen for Fire TV that does one job: show your apps and your HDMI inputs.
 
+EVMA's top navigation contains **Search movies & shows**, **Inputs**, and
+**Settings**. The app row stays below the welcome message. Search opens the
+optional [search companion](../search/README.md), which needs its own catalog
+API key and has Internet permission. The home launcher itself stays offline.
+
 - **41 KB APK.** Plain Java and Android views: no AndroidX, Kotlin, Compose, Play
   Services or other libraries.
 - **No permissions at all.** It has no `INTERNET` permission, so Android blocks it
@@ -75,10 +80,11 @@ update one with the other: `install.sh` says so and tells you to
 | Back on the home screen | jump to the first tile |
 | Hold HOME | Fire OS quick menu (Amazon's, unchanged) |
 
-**Options** cycles each setting with ◀ ▶ or OK: accent color, tile size, app names
-(on focus / always / never), clock format, inputs row, background (black, graphite,
-midnight, or an image) and image dim. It also lists which apps and inputs appear on
-the home screen. Apps without a TV banner, like the Appstore or Downloads, start
+**Settings** cycles each setting with ◀ ▶ or OK: accent color, tile size, app names
+(on focus / always / never), clock format, background (black, graphite,
+midnight, or wallpaper) and image dim. It also lists which apps appear on
+the home screen and which inputs appear in the top **Inputs** button's menu.
+The clock and date stay at the top right. Apps without a TV banner, like the Appstore or Downloads, start
 hidden; tick them there to add them.
 
 ## The settings file
@@ -98,10 +104,8 @@ tiles=medium
 labels=focus
 # auto 24h 12h
 clock=auto
-# on off
-inputs=on
 # black graphite midnight image
-background=black
+background=image
 # 0 20 40 60 80, image background only
 dim=40
 apps.order=com.amazon.firetv.youtube,org.videolan.vlc
@@ -114,8 +118,10 @@ name.com.droidlogic.tvinput/.services.Hdmi2InputService/HW6=PS5
 Comments go on their own line; anything after `=` is the value.
 
 Back it up with `adb pull`, restore it with `adb push`. Hand edits apply the next
-time the home screen comes back. For a wallpaper, push `wallpaper.jpg` (or `.png`)
-into the same folder and set `background=image`.
+time the home screen comes back. The bundled wallpaper is the default. To replace it,
+push `wallpaper.jpg` (or `.png`) into the same folder and set `background=image`.
+The image fills the screen and is cropped at the edges to fit the TV's aspect ratio.
+For an existing configuration with a solid background saved, choose **Background → Wallpaper**.
 
 ## How HOME works on Fire OS
 

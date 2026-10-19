@@ -31,13 +31,22 @@ jobs:
         run: |
           perms=$("$ANDROID_HOME/build-tools/34.0.0/aapt2" dump permissions launcher/build/dumbtv-home.apk | grep -c uses-permission || true)
           [ "$perms" = 0 ] || { echo "the launcher must request no permissions, found $perms"; exit 1; }
+      - name: build optional search companion
+        run: bash search/build.sh
+      - name: offline search filter tests
+        run: |
+          curl -fsSL 'https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar' -o "$RUNNER_TEMP/evma-json.jar"
+          echo "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed  $RUNNER_TEMP/evma-json.jar" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/evma-search-tests"
+          javac --release 8 -encoding UTF-8 -cp "$RUNNER_TEMP/evma-json.jar" -d "$RUNNER_TEMP/evma-search-tests" search/src/tv/evma/search/Catalog.java search/tests/tv/evma/search/CatalogTest.java
+          java -cp "$RUNNER_TEMP/evma-search-tests:$RUNNER_TEMP/evma-json.jar" tv.evma.search.CatalogTest
 
   scripts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: syntax
-        run: for f in scripts/*.sh launcher/*.sh; do bash -n "$f" || exit 1; done
+        run: for f in scripts/*.sh launcher/*.sh search/*.sh; do bash -n "$f" || exit 1; done
       - name: launcher version manifest
         run: ./launcher/release-check.sh --manifest
       - name: no private addresses or hardware ids
