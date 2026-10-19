@@ -16,8 +16,11 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Parcelable;
+import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -33,6 +36,8 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.ScrollView;
+import android.widget.HorizontalScrollView;
+import android.widget.ListView;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -40,6 +45,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.Random;
+import java.util.Collections;
+import java.util.function.IntConsumer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -57,12 +64,19 @@ public final class Search extends Activity {
     private final List<Catalog.Title> titles = new ArrayList<>();
     private final Posters posters = new Posters();
     private Ratings ratings;
+    private Ratings audience;
     private Library library;
     private Button profileButton;
+    private Button filterButton;
+    private LinearLayout suggestions;
+    private HorizontalScrollView suggestionsScroll;
     private Dialog detailsDialog;
     private int detailsGeneration;
     private boolean watchlistMode;
-    private String lastPick = "";
+    private Parcelable returnGridState;
+    private View returnFocus;
+    private String returnIdentity = "";
+    private int returnPosition, returnGeneration;
     private final BaseAdapter adapter = new BaseAdapter() {
         @Override public int getCount() { return titles.size(); }
         @Override public Object getItem(int position) { return titles.get(position); }
@@ -77,6 +91,7 @@ public final class Search extends Activity {
         super.onCreate(state);
         prefs = getSharedPreferences("catalog", MODE_PRIVATE);
         ratings = new Ratings(this);
+        audience = new Ratings(this, true);
         library = new Library(this);
         FrameLayout root = new FrameLayout(this);
         ImageView wallpaper = new ImageView(this);
@@ -132,6 +147,19 @@ public final class Search extends Activity {
         entry.addView(query, new LinearLayout.LayoutParams(0, dp(48), 1));
         entry.addView(button("Search", this::search));
         column.addView(entry, entryLayout);
+        suggestionsScroll = new HorizontalScrollView(this);
+        suggestionsScroll.setHorizontalScrollBarEnabled(false);
+        suggestionsScroll.setClipToPadding(false);
+        suggestions = new LinearLayout(this);
+        suggestions.setGravity(Gravity.CENTER_VERTICAL);
+        suggestionsScroll.addView(suggestions);
+        column.addView(suggestionsScroll, new LinearLayout.LayoutParams(-1, dp(56)));
+        suggestionsScroll.setVisibility(View.GONE);
+        query.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence value, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence value, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable value) { updateSuggestions(); }
+        });
         LinearLayout summary = new LinearLayout(this);
         summary.setGravity(Gravity.CENTER_VERTICAL);
         progress = new ProgressBar(this);
@@ -141,8 +169,11 @@ public final class Search extends Activity {
         summary.addView(progress, spinner);
         status = text("United States · Subscription & free", 13);
         status.setTextColor(0xFFB8C8DB);
-        summary.addView(status, new LinearLayout.LayoutParams(-1, -2));
-        column.addView(summary, new LinearLayout.LayoutParams(-1, dp(36)));
+        summary.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
+        filterButton = button("Filters", () -> filterOptions(false));
+        filterButton.setVisibility(View.GONE);
+        summary.addView(filterButton);
+        column.addView(summary, new LinearLayout.LayoutParams(-1, dp(52)));
         FrameLayout content = new FrameLayout(this);
         results = new GridView(this);
         results.setNumColumns(GridView.AUTO_FIT);
@@ -174,12 +205,13 @@ public final class Search extends Activity {
         empty.addView(emptyDetail);
         content.addView(empty, new FrameLayout.LayoutParams(-1, -1));
         column.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView source = text("Availability: Movie of the Night · US subscription & free · RT critics scores via OMDb · Scores may be missing", 11);
+        TextView source = text("Movie of the Night · US subscription & free · Rotten Tomatoes® scores: OMDb / MDBList · Coverage varies", 11);
         source.setTextColor(0x99FFFFFF);
         column.addView(source);
         root.addView(column, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
         query.requestFocus();
+        updateSuggestions();
         if (prefs.getString("key", "").isEmpty()) {
             showEmpty("Let's set up movie night", "Open Settings → Search setup to add your catalog key.");
         }
@@ -201,9 +233,11 @@ public final class Search extends Activity {
         ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(query.getWindowToken(), 0);
         int ticket = ++generation;
         watchlistMode = false;
+        filterButton.setVisibility(View.GONE);
         library.remember(term);
         clearResults();
         progress.setVisibility(View.VISIBLE);
+        updateSuggestions();
         showEmpty("Finding your next watch", "Checking your selected US subscription and free services…");
         status.setText("Searching US subscription and free catalogs…");
         io.execute(() -> {
@@ -213,6 +247,7 @@ public final class Search extends Activity {
                 ui.post(() -> {
                     if (ticket != generation || isDestroyed()) return;
                     progress.setVisibility(View.GONE);
+                    updateSuggestions();
                     titles.addAll(found);
                     adapter.notifyDataSetChanged();
                     status.setText(found.isEmpty() ? "No matching titles"
@@ -230,6 +265,7 @@ public final class Search extends Activity {
                 ui.post(() -> {
                     if (ticket == generation && !isDestroyed()) {
                         progress.setVisibility(View.GONE);
+                        updateSuggestions();
                         status.setText("Availability check failed");
                         showEmpty("Couldn't reach the catalog", message == null
                                 ? "Check your connection and try again." : message);
@@ -241,7 +277,7 @@ public final class Search extends Activity {
 
     private void choose(Catalog.Title item) {
         if (item.offers.isEmpty()) {
-            new AlertDialog.Builder(this).setTitle("Not listed on your services")
+            menu().setTitle("Not listed on your services")
                     .setMessage("No US subscription or free option was found for “" + item.name
                             + "” on your selected services. Rentals, purchases and extra channel subscriptions are excluded. "
                             + "Catalog coverage can be incomplete; you can also check the service directly.")
@@ -251,7 +287,7 @@ public final class Search extends Activity {
         } else {
             CharSequence[] names = new CharSequence[item.offers.size()];
             for (int i = 0; i < names.length; i++) names[i] = item.offers.get(i).label();
-            new AlertDialog.Builder(this).setTitle("Available on multiple services")
+            menu().setTitle("Available on multiple services")
                     .setItems(names, (dialog, index) -> open(item, item.offers.get(index)))
                     .setNegativeButton("Cancel", null).show();
         }
@@ -283,7 +319,7 @@ public final class Search extends Activity {
                 // Offer an honest fallback; never claim the title page opened successfully.
             }
         }
-        new AlertDialog.Builder(this).setTitle("Title link not supported")
+        menu().setTitle("Title link not supported")
                 .setMessage("This version of “" + offer.service + "” could not open the title link. You can open the app and search for “" + item.name + "”.")
                 .setPositiveButton("Open app", (dialog, which) -> {
                     Intent launch = pm.getLeanbackLaunchIntentForPackage(pkg);
@@ -302,7 +338,7 @@ public final class Search extends Activity {
         key.setHint("Movie of the Night API key");
         key.setPadding(dp(24), dp(12), dp(24), dp(12));
         key.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
-        new AlertDialog.Builder(this).setTitle("Search setup")
+        menu().setTitle("Search setup")
                 .setMessage("Get your personal API key from developers.movieofthenight.com. It stays in this search app's private storage. "
                         + "Search titles are sent to that catalog service. Leave the field empty to keep your current key.")
                 .setView(key)
@@ -330,7 +366,7 @@ public final class Search extends Activity {
         Set<String> choice = selected();
         boolean[] checked = new boolean[Catalog.SERVICES.length];
         for (int i = 0; i < checked.length; i++) checked[i] = choice.contains(Catalog.serviceKey(Catalog.SERVICES[i]));
-        new AlertDialog.Builder(this).setTitle("Your streaming services")
+        menu().setTitle("Your streaming services")
                 .setMultiChoiceItems(Catalog.SERVICES, checked, (dialog, which, on) -> {
                     String id = Catalog.serviceKey(Catalog.SERVICES[which]);
                     if (on) choice.add(id); else choice.remove(id);
@@ -343,17 +379,18 @@ public final class Search extends Activity {
     }
 
     private void message(String title, String detail) {
-        new AlertDialog.Builder(this).setTitle(title).setMessage(detail).setPositiveButton("OK", null).show();
+        menu().setTitle(title).setMessage(detail).setPositiveButton("OK", null).show();
     }
 
     private void profiles() {
-        new AlertDialog.Builder(this).setTitle("Who's watching?")
+        menu().setTitle("Who's watching?")
                 .setSingleChoiceItems(Library.NAMES, library.active(), (dialog, index) -> {
                     if (!library.activate(index)) { message("Could not switch profile", "Please try again."); return; }
                     dialog.dismiss();
                     ++generation;
                     clearResults();
                     watchlistMode = false;
+                    filterButton.setVisibility(View.GONE);
                     query.setText("");
                     profileButton.setText(library.name() + " ▾");
                     status.setText(library.name() + " · US subscription & free");
@@ -367,42 +404,152 @@ public final class Search extends Activity {
         if (history.isEmpty()) { message("No recent searches", "Search for a title to start " + library.name() + "'s history."); return; }
         List<String> labels = new ArrayList<>(history);
         labels.add("Clear recent searches…");
-        new AlertDialog.Builder(this).setTitle(library.name() + " · Recent searches")
+        menu().setTitle(library.name() + " · Recent searches")
                 .setItems(labels.toArray(new String[0]), (dialog, index) -> {
                     if (index < history.size()) { query.setText(history.get(index)); search(); }
-                    else new AlertDialog.Builder(this).setTitle("Clear this profile's search history?")
+                    else menu().setTitle("Clear this profile's search history?")
                             .setPositiveButton("Clear", (confirm, action) -> {
                                 if (!library.clearRecent()) message("Could not clear history", "Please try again.");
+                                updateSuggestions();
                             }).setNegativeButton("Cancel", null).show();
                 }).setNegativeButton("Close", null).show();
     }
 
     private void watchlist() {
         try {
-            List<Catalog.Title> saved = library.saved();
+            library.saved(); // Read before replacing the current screen, preserving it on failure.
             ++generation;
             clearResults();
             watchlistMode = true;
-            titles.addAll(saved);
-            adapter.notifyDataSetChanged();
-            status.setText(library.name() + " · Watchlist · " + saved.size() + " titles");
-            if (saved.isEmpty()) showEmpty("Your watchlist starts here", "Open a title and choose Save to watchlist.");
-            else { empty.setVisibility(View.GONE); results.setSelection(0); results.requestFocus(); }
+            filterButton.setVisibility(View.VISIBLE);
+            updateSuggestions();
+            populateWatchlist();
+            if (!titles.isEmpty()) { results.setSelection(0); results.requestFocus(); }
+            else filterButton.requestFocus();
         } catch (IOException e) { message("Could not open watchlist", "The saved list could not be read. Your data has been kept."); }
     }
 
+    private void populateWatchlist() throws IOException {
+        int total = library.saved().size();
+        WatchFilter filter = library.filter(false);
+        List<Catalog.Title> saved = library.filtered(filter);
+        titles.clear(); titles.addAll(saved);
+        adapter.notifyDataSetChanged();
+        status.setText(library.name() + " · " + saved.size() + "/" + total + " saved · " + filter.summary());
+        if (total == 0) showEmpty("Your watchlist starts here", "Open a title and choose Save to watchlist.");
+        else if (saved.isEmpty()) showEmpty("No titles match these filters", "Choose Filters to change type, genre, runtime, or watched status.");
+        else empty.setVisibility(View.GONE);
+    }
+
     private void randomPick() {
+        filterOptions(true);
+    }
+
+    private void pickNow(WatchFilter filter) {
         try {
-            List<Catalog.Title> candidates = library.saved();
-            if (candidates.isEmpty()) { message("Save a few titles first", "Pick for us chooses from " + library.name() + "'s watchlist."); return; }
+            filter.watched = 1;
+            List<Catalog.Title> candidates = library.filtered(filter);
+            if (candidates.isEmpty()) {
+                message("No unwatched titles match", "Save more titles, mark a title unwatched, or broaden your Pick for us filters."); return;
+            }
+            String lastPick = library.lastPick();
             if (candidates.size() > 1) candidates.removeIf(item -> item.identity().equals(lastPick));
             Catalog.Title pick = candidates.get(new Random().nextInt(candidates.size()));
-            lastPick = pick.identity();
+            library.lastPick(pick.identity());
             details(pick, true);
         } catch (IOException e) { message("Could not choose a title", "The watchlist could not be read. Your data has been kept."); }
     }
 
+    private void updateSuggestions() {
+        if (suggestions == null || progress == null) return;
+        suggestions.removeAllViews();
+        List<String> history = library.recent();
+        boolean show = query.getText().toString().trim().isEmpty() && !watchlistMode
+                && progress.getVisibility() != View.VISIBLE && !history.isEmpty();
+        suggestionsScroll.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (!show) return;
+        TextView label = text("Recent", 12);
+        label.setPadding(0, 0, dp(8), 0);
+        label.setTextColor(0xFFB8C8DB);
+        suggestions.addView(label);
+        for (String term : history.subList(0, Math.min(5, history.size()))) {
+            Button suggestion = button(term, () -> { query.setText(term); search(); });
+            suggestion.setMaxWidth(dp(230));
+            suggestion.setEllipsize(TextUtils.TruncateAt.END);
+            suggestions.addView(suggestion);
+        }
+    }
+
+    private void choice(String title, String[] values, int selected, IntConsumer action) {
+        menu().setTitle(title).setSingleChoiceItems(values, selected, (dialog, which) -> {
+            dialog.dismiss(); action.accept(which);
+        }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void filterOptions(boolean picker) {
+        WatchFilter filter = library.filter(picker);
+        final List<String> genres = new ArrayList<>();
+        try {
+            for (Catalog.Title item : library.saved()) for (String name : item.genreNames)
+                if (!genres.contains(name)) genres.add(name);
+        } catch (IOException e) { message("Could not read watchlist", "Your data has been kept."); return; }
+        Collections.sort(genres, String.CASE_INSENSITIVE_ORDER);
+        genres.add(0, "All genres");
+        String[] types = {"Movies & TV shows", "Movies", "TV shows"};
+        String[] times = {"Any runtime", "Under 30 minutes", "Under 1 hour", "Under 2 hours", "Under 3 hours"};
+        int[] caps = {0, 30, 60, 120, 180};
+        String[] seen = {"All titles", "Unwatched", "Watched"};
+        LinearLayout options = new LinearLayout(this);
+        options.setOrientation(LinearLayout.VERTICAL);
+        options.setPadding(dp(16), dp(8), dp(16), dp(8));
+        Button type = button("Type: " + types[filter.type], () -> {});
+        type.setOnClickListener(v -> choice("Title type", types, filter.type, index -> {
+            filter.type = index; type.setText("Type: " + types[index]);
+        }));
+        options.addView(type, new LinearLayout.LayoutParams(-1, -2));
+        Button genre = button("Genre: " + (filter.genre.isEmpty() ? "All genres" : filter.genre), () -> {});
+        genre.setOnClickListener(v -> choice("Genre", genres.toArray(new String[0]), Math.max(0, genres.indexOf(filter.genre)), index -> {
+            filter.genre = index == 0 ? "" : genres.get(index);
+            genre.setText("Genre: " + genres.get(index));
+        }));
+        options.addView(genre, new LinearLayout.LayoutParams(-1, -2));
+        int currentCap = 0;
+        for (int i = 0; i < caps.length; i++) if (caps[i] == filter.minutes) currentCap = i;
+        Button runtime = button("Runtime: " + times[currentCap], () -> {});
+        runtime.setOnClickListener(v -> {
+            int selected = 0;
+            for (int i = 0; i < caps.length; i++) if (caps[i] == filter.minutes) selected = i;
+            choice("Runtime · known durations only", times, selected, index -> {
+                filter.minutes = caps[index]; runtime.setText("Runtime: " + times[index]);
+            });
+        });
+        options.addView(runtime, new LinearLayout.LayoutParams(-1, -2));
+        if (!picker) {
+            Button watched = button("Status: " + seen[filter.watched], () -> {});
+            watched.setOnClickListener(v -> choice("Watched status", seen, filter.watched, index -> {
+                filter.watched = index; watched.setText("Status: " + seen[index]);
+            }));
+            options.addView(watched, new LinearLayout.LayoutParams(-1, -2));
+        }
+        TextView hint = text(picker ? "Chooses only unwatched titles from this profile's watchlist."
+                : "Runtime limits exclude titles whose duration is unknown.", 13);
+        hint.setPadding(dp(10), dp(12), dp(10), dp(6));
+        hint.setTextColor(0xFFB8C8DB);
+        options.addView(hint);
+        menu().setTitle(picker ? "Pick something for " + library.name() : "Watchlist filters")
+                .setView(options)
+                .setPositiveButton(picker ? "Pick a title" : "Apply", (dialog, which) -> {
+                    if (!library.filter(picker, filter)) { message("Could not save filters", "Please try again."); return; }
+                    if (picker) pickNow(filter); else watchlist();
+                }).setNeutralButton("Reset", (dialog, which) -> {
+                    WatchFilter defaults = new WatchFilter();
+                    if (!library.filter(picker, defaults)) { message("Could not reset filters", "Please try again."); return; }
+                    if (picker) filterOptions(true); else watchlist();
+                }).setNegativeButton("Cancel", null).show();
+    }
+
     private void details(Catalog.Title item, boolean refresh) {
+        if (detailsDialog == null) rememberOrigin();
         if (detailsDialog != null) detailsDialog.dismiss();
         Dialog dialog = new Dialog(this, android.R.style.Theme_DeviceDefault_NoActionBar_Fullscreen);
         detailsDialog = dialog;
@@ -432,7 +579,10 @@ public final class Search extends Activity {
         TextView score = text("RT …", 15);
         score.setPadding(0, dp(10), 0, dp(3));
         artwork.addView(score);
-        TextView attribution = text("Rotten Tomatoes® critics\nData via OMDb", 11);
+        TextView audienceScore = text("Audience …", 15);
+        audienceScore.setPadding(0, dp(5), 0, dp(3));
+        artwork.addView(audienceScore);
+        TextView attribution = text("Rotten Tomatoes®\nOMDb · MDBList", 11);
         attribution.setTextColor(0xFFB8C8DB);
         artwork.addView(attribution);
         body.addView(artwork, new LinearLayout.LayoutParams(dp(180), -2));
@@ -466,25 +616,34 @@ public final class Search extends Activity {
                 boolean on = !library.contains(current[0]);
                 library.setSaved(current[0], on);
                 save.setText(on ? "Remove from watchlist" : "Save to watchlist");
-                if (watchlistMode) {
-                    titles.clear(); titles.addAll(library.saved()); adapter.notifyDataSetChanged();
-                    status.setText(library.name() + " · Watchlist · " + titles.size() + " titles");
-                    if (titles.isEmpty()) showEmpty("Your watchlist starts here", "Open a title and choose Save to watchlist.");
-                    else empty.setVisibility(View.GONE);
-                }
+                if (watchlistMode) populateWatchlist();
             } catch (IOException e) { message("Could not update watchlist", e.getMessage()); }
         });
         try { if (library.contains(item)) save.setText("Remove from watchlist"); }
         catch (IOException e) { save.setEnabled(false); }
+        Button watched = button(library.watched(item) ? "Mark unwatched" : "Mark watched", () -> {});
+        watched.setOnClickListener(view -> {
+            try {
+                boolean seen = !library.watched(current[0]);
+                library.watched(current[0], seen);
+                watched.setText(seen ? "Mark unwatched" : "Mark watched");
+                if (watchlistMode) populateWatchlist(); else adapter.notifyDataSetChanged();
+            } catch (IOException e) { message("Could not update watched status", e.getMessage()); }
+        });
         actions.addView(where); actions.addView(save);
-        actions.addView(button("Pick for us", this::randomPick));
+        actions.addView(watched);
+        actions.addView(button("Pick again", () -> pickNow(library.filter(true))));
         page.addView(actions);
         dialog.setContentView(page);
         dialog.setOnDismissListener(closed -> {
-            if (detailsDialog == dialog) { detailsDialog = null; ++detailsGeneration; }
+            if (detailsDialog == dialog) {
+                detailsDialog = null; ++detailsGeneration;
+                restoreOrigin();
+            }
         });
         dialog.show();
         ratings.load(item.imdbId, score);
+        audience.load(item, audienceScore);
         meta.setText(item.detail + (item.runtime > 0 ? " · " + item.runtime + " min" : "")
                 + (item.genres.isEmpty() ? "" : "\n" + item.genres));
         synopsis.setText(item.overview.isEmpty() ? "No synopsis was provided by the catalog." : item.overview);
@@ -529,11 +688,66 @@ public final class Search extends Activity {
                 : "Where to watch · US\n" + String.join("\n", labels);
     }
 
+    private void rememberOrigin() {
+        returnGeneration = generation;
+        returnFocus = getCurrentFocus();
+        returnGridState = results.onSaveInstanceState();
+        returnPosition = results.getSelectedItemPosition();
+        returnIdentity = returnPosition >= 0 && returnPosition < titles.size()
+                ? titles.get(returnPosition).identity() : "";
+    }
+
+    private void restoreOrigin() {
+        ui.post(() -> {
+            if (isDestroyed() || detailsDialog != null || returnGeneration != generation) return;
+            if (returnGridState != null && !titles.isEmpty()) results.onRestoreInstanceState(returnGridState);
+            if (returnFocus != null && returnFocus != results && returnFocus.isShown()) {
+                returnFocus.requestFocus(); return;
+            }
+            if (titles.isEmpty()) {
+                if (watchlistMode) filterButton.requestFocus(); else query.requestFocus();
+                return;
+            }
+            int target = Math.min(Math.max(returnPosition, 0), titles.size() - 1);
+            for (int i = 0; i < titles.size(); i++) if (returnIdentity.equals(titles.get(i).identity())) target = i;
+            if (target != returnPosition) results.setSelection(target);
+            results.requestFocus();
+        });
+    }
+
     private void settings() {
-        new AlertDialog.Builder(this).setTitle("Search settings")
-                .setItems(new String[] {"Your streaming services", "Search setup", "Rotten Tomatoes setup"}, (dialog, which) -> {
-                    if (which == 0) services(); else if (which == 1) setup(); else ratingsSetup();
+        menu().setTitle("Search settings")
+                .setItems(new String[] {"Your streaming services", "Search setup", "Rotten Tomatoes setup", "Audience score setup"}, (dialog, which) -> {
+                    if (which == 0) services(); else if (which == 1) setup(); else if (which == 2) ratingsSetup(); else audienceSetup();
                 }).setNegativeButton("Close", null).show();
+    }
+
+    private void audienceSetup() {
+        EditText key = new EditText(this);
+        key.setSingleLine(true);
+        key.setHint("MDBList API key");
+        key.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        key.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
+        key.setPadding(dp(24), dp(12), dp(24), dp(12));
+        menu().setTitle("Audience scores · MDBList")
+                .setMessage("Get your API key from Preferences at mdblist.com. This key is separate from your OMDb and movie-search keys. "
+                        + "MDBList receives visible titles' IMDb IDs to look up Rotten Tomatoes audience percentages. "
+                        + "Coverage varies; verified-versus-all-audience and award status are not supplied. "
+                        + "The key is stored privately on this TV and shared by your local profiles. Leave blank to keep your current key.")
+                .setView(key).setPositiveButton("Save", (dialog, which) -> {
+                    String value = key.getText().toString().trim();
+                    if (value.isEmpty()) return;
+                    if (value.length() > 256 || !value.matches("[A-Za-z0-9_-]+")) {
+                        status.setText("Copy the MDBList key exactly, without spaces or quotes."); return;
+                    }
+                    prefs.edit().putString("audienceKey", value).apply();
+                    audience.reset(); adapter.notifyDataSetChanged();
+                    status.setText("Audience key saved. Scores load for visible posters.");
+                }).setNeutralButton("Remove key", (dialog, which) -> {
+                    prefs.edit().remove("audienceKey").apply();
+                    audience.reset(); adapter.notifyDataSetChanged();
+                    status.setText("Audience scores disabled. Critics scores and movie search remain available.");
+                }).setNegativeButton("Cancel", null).show();
     }
 
     private void ratingsSetup() {
@@ -543,7 +757,7 @@ public final class Search extends Activity {
         key.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         key.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO);
         key.setPadding(dp(24), dp(12), dp(24), dp(12));
-        new AlertDialog.Builder(this).setTitle("Rotten Tomatoes scores")
+        menu().setTitle("Rotten Tomatoes scores")
                 .setMessage("Get a separate key at omdbapi.com/apikey.aspx and activate it by email. "
                         + "OMDb receives the IMDb IDs of visible titles to check their Rotten Tomatoes critics scores. "
                         + "Coverage is incomplete, especially for TV series; these are not audience or season-specific scores. "
@@ -570,6 +784,7 @@ public final class Search extends Activity {
         progress.setVisibility(View.GONE);
         posters.cancelPending();
         ratings.reset();
+        audience.reset();
         titles.clear();
         adapter.notifyDataSetChanged();
     }
@@ -607,14 +822,24 @@ public final class Search extends Activity {
         ImageView image = new ImageView(this);
         image.setScaleType(ImageView.ScaleType.CENTER_CROP);
         art.addView(image, new FrameLayout.LayoutParams(-1, -1));
-        TextView score = text("RT …", 11);
+        LinearLayout scoreStack = new LinearLayout(this);
+        scoreStack.setOrientation(LinearLayout.VERTICAL);
+        TextView score = text("Critics …", 11);
         score.setPadding(dp(8), dp(4), dp(8), dp(4));
         score.setBackground(background(0xED0B1421));
         FrameLayout.LayoutParams scoreLayout = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
         scoreLayout.setMargins(dp(7), 0, dp(7), dp(7));
-        art.addView(score, scoreLayout);
+        scoreStack.addView(score);
+        TextView audienceScore = text("Audience …", 11);
+        audienceScore.setPadding(dp(8), dp(4), dp(8), dp(4));
+        audienceScore.setBackground(background(0xED0B1421));
+        LinearLayout.LayoutParams audienceLayout = new LinearLayout.LayoutParams(-2, -2);
+        audienceLayout.topMargin = dp(3);
+        scoreStack.addView(audienceScore, audienceLayout);
+        art.addView(scoreStack, scoreLayout);
         card.addView(art, new LinearLayout.LayoutParams(-1, dp(192)));
         ratings.load(item.imdbId, score);
+        audience.load(item, audienceScore);
         posters.load(item.poster, image);
         TextView name = text(item.name, 15);
         name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
@@ -622,10 +847,11 @@ public final class Search extends Activity {
         name.setEllipsize(TextUtils.TruncateAt.END);
         name.setPadding(dp(5), dp(8), dp(5), 0);
         card.addView(name, new LinearLayout.LayoutParams(-1, dp(31)));
-        TextView detail = text(item.detail, 12);
+        TextView detail = text(item.detail + (library.watched(item) ? " · Watched" : ""), 12);
         detail.setTextColor(0xFFB8C8DB);
         detail.setPadding(dp(5), 0, dp(5), 0);
         detail.setSingleLine(true);
+        detail.setEllipsize(TextUtils.TruncateAt.END);
         card.addView(detail, new LinearLayout.LayoutParams(-1, dp(20)));
         LinearLayout badges = new LinearLayout(this);
         badges.setGravity(Gravity.CENTER_VERTICAL);
@@ -673,17 +899,41 @@ public final class Search extends Activity {
 
     private Button button(String value, Runnable action) {
         Button view = new Button(this);
-        view.setText(value); view.setTextColor(Color.WHITE); view.setTextSize(14);
+        view.setText(value);
+        styleButton(view);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
+        lp.setMargins(dp(4), dp(4), dp(4), dp(4)); view.setLayoutParams(lp);
+        view.setOnClickListener(v -> action.run());
+        return view;
+    }
+
+    private void styleButton(Button view) {
+        view.setTextColor(Color.WHITE); view.setTextSize(14);
         view.setAllCaps(false);
         view.setMinHeight(dp(44));
         view.setMinimumHeight(dp(44));
         view.setSingleLine(true);
         view.setIncludeFontPadding(true);
         view.setBackground(controlBackground()); view.setPadding(dp(18), dp(8), dp(18), dp(8));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
-        lp.setMargins(dp(4), dp(4), dp(4), dp(4)); view.setLayoutParams(lp);
-        view.setOnClickListener(v -> action.run());
-        return view;
+    }
+
+    private AlertDialog.Builder menu() {
+        return new AlertDialog.Builder(this, R.style.SearchMenu) {
+            @Override public AlertDialog show() {
+                AlertDialog dialog = super.show();
+                for (int id : new int[] {AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL}) {
+                    Button action = dialog.getButton(id);
+                    if (action != null) styleButton(action);
+                }
+                ListView list = dialog.getListView();
+                if (list != null) {
+                    list.setSelector(controlBackground());
+                    list.setPadding(dp(8), dp(6), dp(8), dp(6));
+                    list.setClipToPadding(false);
+                }
+                return dialog;
+            }
+        };
     }
 
     private StateListDrawable controlBackground() {
@@ -707,6 +957,6 @@ public final class Search extends Activity {
 
     @Override protected void onDestroy() {
         ++generation; if (detailsDialog != null) detailsDialog.dismiss();
-        io.shutdownNow(); posters.close(); if (ratings != null) ratings.close(); super.onDestroy();
+        io.shutdownNow(); posters.close(); if (ratings != null) ratings.close(); if (audience != null) audience.close(); super.onDestroy();
     }
 }

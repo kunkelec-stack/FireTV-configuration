@@ -26,7 +26,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.HttpsURLConnection;
 
-/** Optional OMDb lookup by exact IMDb ID. Never substitutes IMDb's score for RT. */
+/** Optional exact-ID critics (OMDb) or audience (MDBList) ratings. */
 final class Ratings {
     private static final int NONE = -1, ERROR = -2, AUTH = -3, QUOTA = -4;
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -34,43 +34,62 @@ final class Ratings {
             TimeUnit.MILLISECONDS, new ArrayBlockingQueue<Runnable>(64));
     private final Map<String, List<TextView>> pending = new HashMap<>();
     private final SharedPreferences prefs, cache;
+    private final boolean audience;
     private volatile int generation, blocked;
 
     Ratings(Context context) {
+        this(context, false);
+    }
+    Ratings(Context context, boolean audience) {
+        this.audience = audience;
         prefs = context.getSharedPreferences("catalog", Context.MODE_PRIVATE);
-        cache = context.getSharedPreferences("ratings-cache", Context.MODE_PRIVATE);
+        cache = context.getSharedPreferences(audience ? "audience-cache" : "ratings-cache", Context.MODE_PRIVATE);
     }
 
     void load(String imdbId, TextView badge) {
-        badge.setTag(imdbId);
-        String key = prefs.getString("ratingsKey", "");
-        if (key.isEmpty()) { label(badge, "RT · Set up", "Add an OMDb key in Settings → Rotten Tomatoes setup."); return; }
-        if (imdbId.isEmpty()) {
-            label(badge, "RT —", "The catalog did not provide an IMDb ID, so a verified ratings lookup is unavailable."); return;
+        load(imdbId, "any", badge);
+    }
+    void load(Catalog.Title title, TextView badge) {
+        load(title.imdbId, "series".equals(title.showType) ? "show" : "movie".equals(title.showType) ? "movie" : "any", badge);
+    }
+    private String name() { return audience ? "Audience" : "Critics"; }
+    private String provider() { return audience ? "MDBList" : "OMDb"; }
+    private void load(String imdbId, String type, TextView badge) {
+        String identity = audience ? type + ":" + imdbId : imdbId;
+        badge.setTag(identity);
+        String key = prefs.getString(audience ? "audienceKey" : "ratingsKey", "");
+        if (key.isEmpty()) {
+            label(badge, name() + " · Set up", audience
+                    ? "Add an MDBList key in Settings → Audience score setup."
+                    : "Add an OMDb key in Settings → Rotten Tomatoes setup."); return;
         }
-        int cached = cached(imdbId);
+        if (imdbId.isEmpty()) {
+            label(badge, name() + " —", "The catalog did not provide an IMDb ID, so an exact ratings lookup is unavailable.");
+            icon(badge, -1); return;
+        }
+        int cached = cached(identity);
         if (cached >= NONE) { show(badge, cached); return; }
         if (blocked != 0) { show(badge, blocked); return; }
-        label(badge, "RT …", "Checking the Rotten Tomatoes critics score via OMDb.");
-        List<TextView> waiting = pending.get(imdbId);
+        label(badge, name() + " …", "Checking the Rotten Tomatoes " + name().toLowerCase(Locale.ROOT) + " score via " + provider() + ".");
+        List<TextView> waiting = pending.get(identity);
         if (waiting != null) { waiting.add(badge); return; }
-        waiting = new ArrayList<>(); waiting.add(badge); pending.put(imdbId, waiting);
+        waiting = new ArrayList<>(); waiting.add(badge); pending.put(identity, waiting);
         int ticket = generation;
         try {
             workers.execute(() -> {
                 if (ticket != generation) return;
-                int score = blocked == 0 ? fetch(imdbId, key) : blocked;
+                int score = blocked == 0 ? fetch(imdbId, type, key) : blocked;
                 ui.post(() -> {
                     if (ticket != generation) return;
                     if (score == AUTH || score == QUOTA) blocked = score;
-                    List<TextView> targets = pending.remove(imdbId);
-                    if (score >= NONE) save(imdbId, score);
+                    List<TextView> targets = pending.remove(identity);
+                    if (score >= NONE) save(identity, score);
                     if (targets != null) for (TextView target : targets) {
-                        if (imdbId.equals(target.getTag())) show(target, score);
+                        if (identity.equals(target.getTag())) show(target, score);
                     }
                 });
             });
-        } catch (RejectedExecutionException ignored) { pending.remove(imdbId); show(badge, ERROR); }
+        } catch (RejectedExecutionException ignored) { pending.remove(identity); show(badge, ERROR); }
     }
 
     void cancelPending() { ++generation; workers.getQueue().clear(); pending.clear(); }
@@ -82,30 +101,48 @@ final class Ratings {
         view.setText(label);
         view.setContentDescription(explanation);
         view.setTooltipText(explanation);
-        if (view.getParent() instanceof View) {
-            View art = (View) view.getParent();
-            if (art.getParent() instanceof View) {
-                View card = (View) art.getParent();
-                if (card.getTag() instanceof CharSequence)
-                    card.setContentDescription(card.getTag().toString() + ". " + explanation);
+        android.view.ViewParent parent = view.getParent();
+        for (int depth = 0; depth < 4 && parent instanceof View; depth++) {
+            View card = (View) parent;
+            if (card.getTag() instanceof CharSequence) {
+                card.setTag(audience ? R.id.audience_description : R.id.critics_description, explanation);
+                Object critics = card.getTag(R.id.critics_description), viewers = card.getTag(R.id.audience_description);
+                card.setContentDescription(card.getTag().toString() + ". "
+                            + (critics == null ? "" : critics.toString()) + " " + (viewers == null ? "" : viewers.toString()));
+                break;
             }
+            parent = card.getParent();
         }
     }
 
     private void show(TextView view, int score) {
         if (score >= 0) {
-            label(view, "RT " + score + "%", "Rotten Tomatoes critics score: " + score + " percent. Data via OMDb.");
-            view.setCompoundDrawablesWithIntrinsicBounds(R.drawable.ic_tomato, 0, 0, 0);
-            view.setCompoundDrawablePadding(Math.round(5 * view.getResources().getDisplayMetrics().density));
+            label(view, name() + " " + score + "%", "Rotten Tomatoes " + name().toLowerCase(Locale.ROOT)
+                    + " score: " + score + " percent. " + (score >= 60 ? "Positive" : "Negative")
+                    + ". Data via " + provider() + ". "
+                    + (audience ? "Verified versus all-audience status was not supplied. " : "")
+                    + "No special award status is implied.");
+            icon(view, score);
         } else if (score == AUTH) {
-            label(view, "RT · Check key", "OMDb rejected the ratings key. Check Rotten Tomatoes setup in Settings.");
+            label(view, name() + " · Key", provider() + " denied access. Check its key and plan access in Settings.");
         } else if (score == QUOTA) {
-            label(view, "RT · Limit", "OMDb's request limit was reached. Try again later.");
+            label(view, name() + " · Limit", provider() + "'s request limit was reached. Try again later.");
         } else if (score == ERROR) {
-            label(view, "RT · Retry", "The ratings lookup failed. Search again to retry; this does not mean a score is missing.");
+            label(view, name() + " · Retry", "The ratings lookup failed. Search again to retry; this does not mean a score is missing.");
         } else {
-            label(view, "RT —", "No Rotten Tomatoes critics score is available from OMDb for this exact title. TV season scores may differ.");
+            label(view, name() + " —", "No Rotten Tomatoes " + name().toLowerCase(Locale.ROOT)
+                    + " score was provided by " + provider() + " for this title. This may be a coverage gap; TV season scores may differ.");
+            icon(view, -1);
         }
+    }
+
+    private void icon(TextView view, int score) {
+        int drawable = audience ? (score < 0 ? R.drawable.rt_audience_empty
+                : score >= 60 ? R.drawable.rt_audience_positive : R.drawable.rt_audience_negative)
+                : (score < 0 ? R.drawable.rt_critic_empty
+                : score >= 60 ? R.drawable.rt_critic_positive : R.drawable.rt_critic_negative);
+        view.setCompoundDrawablesWithIntrinsicBounds(drawable, 0, 0, 0);
+        view.setCompoundDrawablePadding(Math.round(5 * view.getResources().getDisplayMetrics().density));
     }
 
     private int cached(String id) {
@@ -130,29 +167,52 @@ final class Ratings {
         } catch (JSONException ignored) { /* The score remains visible without caching. */ }
     }
 
-    private int fetch(String id, String key) {
+    private int fetch(String id, String type, String key) {
         HttpsURLConnection connection = null;
         try {
-            // OMDb requires query-string authentication. Never log the URL or raw exceptions.
-            URL url = new URL("https://www.omdbapi.com/?i=" + id + "&r=json&apikey=" + URLEncoder.encode(key, "UTF-8"));
+            // Both providers require query-string authentication. Never log the URL or raw exceptions.
+            URL url = new URL(audience
+                    ? "https://api.mdblist.com/imdb/" + type + "/" + id + "/?apikey=" + URLEncoder.encode(key, "UTF-8")
+                    : "https://www.omdbapi.com/?i=" + id + "&r=json&apikey=" + URLEncoder.encode(key, "UTF-8"));
             connection = (HttpsURLConnection) url.openConnection();
             connection.setConnectTimeout(6000); connection.setReadTimeout(8000);
             connection.setInstanceFollowRedirects(false);
             int code = connection.getResponseCode();
             if (code == 401 || code == 403) return AUTH;
             if (code == 429) return QUOTA;
+            if (audience && code == 404) return NONE;
             if (code != 200) return ERROR;
             try (InputStream input = connection.getInputStream(); ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
                 byte[] chunk = new byte[4096]; int count;
                 while ((count = input.read(chunk)) != -1) {
-                    if (bytes.size() + count > 65536) return ERROR;
+                    if (bytes.size() + count > 262144) return ERROR;
                     bytes.write(chunk, 0, count);
                 }
-                return parse(new String(bytes.toByteArray(), StandardCharsets.UTF_8), id);
+                String body = new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+                return audience ? parseAudience(body, id) : parse(body, id);
             }
         } catch (IOException | JSONException | IllegalArgumentException ignored) {
             return ERROR;
         } finally { if (connection != null) connection.disconnect(); }
+    }
+
+    private static int parseAudience(String body, String id) throws JSONException {
+        JSONObject result = new JSONObject(body);
+        String returned = result.optString("imdb_id", result.optString("imdbid", ""));
+        JSONObject ids = result.optJSONObject("ids");
+        if (returned.isEmpty() && ids != null) returned = ids.optString("imdb", "");
+        if (!id.equals(returned)) return ERROR;
+        JSONArray ratings = result.optJSONArray("ratings");
+        if (ratings == null) return ERROR;
+        for (int i = 0; i < ratings.length(); i++) {
+            JSONObject rating = ratings.getJSONObject(i);
+            String source = rating.optString("source");
+            if (!"popcorn".equals(source) && !"tomatoesaudience".equals(source)) continue;
+            double value = rating.optDouble("value", Double.NaN);
+            if (!Double.isFinite(value)) return NONE;
+            return value >= 0 && value <= 100 && value == Math.rint(value) ? (int) value : ERROR;
+        }
+        return NONE;
     }
 
     private static int parse(String body, String id) throws JSONException {

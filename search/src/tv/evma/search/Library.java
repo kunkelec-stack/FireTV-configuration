@@ -54,6 +54,39 @@ final class Library {
         store().edit().putString("recent", new JSONArray(recent.subList(0, Math.min(recent.size(), 20))).toString()).apply();
     }
     boolean clearRecent() { return store().edit().remove("recent").commit(); }
+    boolean watched(Catalog.Title item) {
+        return store().getStringSet("watched", new HashSet<String>()).contains(item.identity());
+    }
+    void watched(Catalog.Title item, boolean seen) throws IOException {
+        Set<String> values = new HashSet<>(store().getStringSet("watched", new HashSet<String>()));
+        if (seen) values.add(item.identity()); else values.remove(item.identity());
+        if (!store().edit().putStringSet("watched", values).commit())
+            throw new IOException("Watched status could not be saved. Please try again.");
+    }
+    String lastPick() { return store().getString("lastPick", ""); }
+    void lastPick(String id) { store().edit().putString("lastPick", id).apply(); }
+    WatchFilter filter(boolean picker) {
+        String prefix = picker ? "pick." : "filter.";
+        SharedPreferences data = store();
+        WatchFilter filter = new WatchFilter();
+        filter.type = Math.max(0, Math.min(2, data.getInt(prefix + "type", 0)));
+        filter.watched = picker ? 1 : Math.max(0, Math.min(2, data.getInt(prefix + "watched", 0)));
+        filter.genre = data.getString(prefix + "genre", "");
+        int minutes = data.getInt(prefix + "minutes", 0);
+        filter.minutes = minutes == 30 || minutes == 60 || minutes == 120 || minutes == 180 ? minutes : 0;
+        return filter;
+    }
+    boolean filter(boolean picker, WatchFilter filter) {
+        String prefix = picker ? "pick." : "filter.";
+        return store().edit().putInt(prefix + "type", filter.type)
+                .putInt(prefix + "watched", picker ? 1 : filter.watched)
+                .putInt(prefix + "minutes", filter.minutes).putString(prefix + "genre", filter.genre).commit();
+    }
+    List<Catalog.Title> filtered(WatchFilter filter) throws IOException {
+        List<Catalog.Title> values = saved();
+        values.removeIf(title -> !filter.matches(title, watched(title)));
+        return values;
+    }
     List<Catalog.Title> saved() throws IOException {
         return Catalog.parse(store().getString("watchlist", "[]"), new HashSet<String>());
     }

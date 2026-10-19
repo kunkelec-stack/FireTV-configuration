@@ -36,7 +36,8 @@ final class Catalog {
     }
 
     static final class Title {
-        final String name, detail, poster, imdbId, id, overview, genres;
+        final String name, detail, poster, imdbId, id, overview, genres, showType;
+        final List<String> genreNames;
         final int runtime;
         private final JSONObject metadata;
         final List<Offer> offers;
@@ -46,6 +47,7 @@ final class Catalog {
             id = rawId.matches("[0-9]{1,20}") ? rawId : "";
             overview = show.optString("overview", "");
             runtime = Math.max(0, show.optInt("runtime", 0));
+            showType = show.optString("showType", "");
             List<String> names = new ArrayList<>();
             JSONArray source = show.optJSONArray("genres");
             if (source != null) for (int i = 0; i < Math.min(source.length(), 8); i++) {
@@ -53,6 +55,7 @@ final class Catalog {
                 if (genre != null && !genre.optString("name").isEmpty()) names.add(genre.optString("name"));
             }
             genres = String.join(" · ", names);
+            genreNames = java.util.Collections.unmodifiableList(names);
             metadata = show;
         }
         String identity() {

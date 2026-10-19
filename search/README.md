@@ -54,19 +54,30 @@ provider links. Refresh errors keep the saved metadata and offer Retry; stale
 offers are never silently reused. Metadata remains readable offline. Unsupported
 or removed IDs prompt a new search rather than guessing another title.
 
-**Pick for us** chooses from the active profile's watchlist and opens that title's
-details with current availability checking. It avoids repeating the previous
-pick when at least two different titles exist. It does not play or purchase
-anything automatically and does not promise the chosen title is still available.
-The details page also offers Pick for us to choose again. Repeated picks each
-trigger a catalog lookup, independent of OMDb's ratings cache.
+**Pick for us** opens choices for Movies/TV, genre, and runtime. It chooses only
+unwatched titles from the active profile's watchlist and checks current availability.
+**Pick again** on the details page reuses that profile's picker choices. It avoids
+the previous pick when another eligible title exists. Picks do not automatically
+play or purchase anything or promise that a title is still available. Each saved
+title/pick opened triggers a catalog lookup, independent of the ratings caches.
 
-A small original tomato illustration accompanies known critics percentages.
-It is a generic indicator, not an official Fresh, Rotten, or Certified Fresh logo.
-Official marks are not inferred from the numeric score. Missing/error/key-setup
-states have no tomato indicator. Official logo use would also need the applicable
-assets and matching RT title links described in the
-[Rotten Tomatoes brand guidance](https://www.rottentomatoes.com/help_desk/licensing).
+**Mark watched / Mark unwatched** on details is local to the active profile and
+persists even if a saved title is removed and later re-added. The watchlist's
+**Filters** button filters by Movies/TV, genre, runtime, and All/Unwatched/Watched.
+Watchlist and picker filters are saved independently per profile. Runtime caps
+are strict (Under 2 hours means less than 120 minutes), and exclude missing
+durations. There is no automatic viewing-progress tracking across streaming apps.
+
+Closing details restores the underlying grid's saved scroll state and focused
+title. When a title was removed or filtered out, selection falls back to the
+nearest remaining position. Rerolling or retrying a details page preserves the
+original return point. The header control is restored when that opened details.
+
+When the search field is empty, up to five recent searches appear as remote-friendly
+suggestions. Suggestions are hidden in watchlist mode and while a search is loading;
+selecting one explicitly submits a search. Displaying them makes no request.
+All search menus share the same rounded panel, text colors, buttons, and focus
+highlights, including profiles, service selection, key setup, filters, and errors.
 
 The screen shares EVMA's bundled wallpaper with a dark overlay, a translucent
 search field, and a responsive poster grid. Remote selection highlights each
@@ -89,7 +100,7 @@ value is a valid percentage are shown. The returned IMDb ID must match. These
 are critics scores supplied by OMDb, not audience scores or the catalog's own
 rating. A show-level score must not be treated as a score for every season.
 Many series and some movies have no returned RT score: the badge then says
-`RT —`. Missing IMDb IDs also show `RT —` with an explanatory description.
+`Critics —`. Missing IMDb IDs also show a dash with an explanatory description.
 Key, quota, and lookup errors use distinct badge messages rather than a zero.
 
 Two background workers load ratings without delaying search results or provider
@@ -103,6 +114,50 @@ app never logs that URL or raw lookup exceptions. The key is stored only in the
 companion's private preferences and is not sent to image hosts, weather,
 Movie of the Night, or streaming apps. No title guessing or website scraping is
 used to fill missing scores. Live score validation requires the user's OMDb key.
+
+### Audience scores and score icons
+
+Open **Settings → Audience score setup** and enter a separate MDBList API key,
+obtained from Preferences at mdblist.com. See the provider's
+[API documentation and limits](https://docs.mdblist.com/docs/api).
+This optional key is private on the TV and shared across local profiles. Removing
+it disables audience lookups while preserving the movie-search and OMDb keys.
+
+Audience lookups use the documented exact-ID route
+`https://api.mdblist.com/imdb/{movie|show|any}/{imdb_id}/?apikey=...`.
+The returned IMDb ID must match. Only `popcorn` (or legacy `tomatoesaudience`)
+rating entries are accepted, with integer percentage values from 0 to 100.
+Other platforms' user scores and MDBList's aggregate score are never substituted.
+Key, quota, network/schema errors and missing ratings have distinct labels.
+Audience verification status is not supplied by this integration, so it must
+not be presented as a specifically Verified or All Audience score. Series-level
+ratings must not be described as ratings for each individual season.
+
+Critics and Audience have separate private bounded caches, pending-request
+deduplication, timeouts, key setup, and cancellation. Each uses up to two workers.
+Successful scores are cached for seven days, missing scores for one day. Request
+URLs/keys and raw network exceptions are never logged. Live MDBList validation
+requires the user's key. Audience requests are optional and do not gate search,
+watchlist editing, or provider links.
+
+The matching score icons are imported from Rotten Tomatoes' published web-component
+vectors: red tomato at 60%+, green splat below 60%, full red popcorn bucket at
+60%+, tipped green bucket below 60%, and gray variants for missing scores. Source
+paths, colors, translations and mask clipping are preserved as Android vector
+resources. Setup/error states have no score icon. A gray icon means data was not
+provided here; it does not establish that a title is unreleased or lacks reviews.
+
+**Certified Fresh and Verified Hot are never inferred from percentages.** These
+feeds do not confirm the necessary award status, review counts, top-critic counts,
+verified vote counts, release type or season-specific award. Award badges remain
+hidden unless a future source explicitly confirms them.
+
+Artwork source: Rotten Tomatoes score-icon-critics and score-icon-audience in
+`/assets/pizza-pie/javascripts/bundles/roma/default.a3b33025165.js`, obtained from
+the [official licensing page](https://www.rottentomatoes.com/help_desk/licensing).
+Rotten Tomatoes® and its score marks belong to their respective owners. The
+app displays brand/source attribution; imported resources grant no broader
+trademark license. See the linked brand guidance for distribution requirements.
 
 Poster URLs come from the search response (`imageSet.verticalPoster.w240`, with
 `w360` fallback), so artwork needs no additional catalog lookup. Public image
