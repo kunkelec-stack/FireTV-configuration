@@ -12,7 +12,7 @@ it is not a movie/TV catalog provider in this search screen.
 ## Setup
 
 Build and install the search APK alongside the launcher. In the home screen,
-select **Search movies & shows**, then **Search setup**. Create a personal
+select **Search movies & shows**, then **Settings → Search setup**. Create a personal
 developer account at https://developers.movieofthenight.com/ and enter that
 account's API key. Use a key issued directly by Movie of the Night, not RapidAPI.
 There are request quotas; check the provider's current plan details before signup.
@@ -22,10 +22,24 @@ Android backup is disabled for this component.
 
 Search titles are sent over HTTPS to `api.movieofthenight.com`. No streaming
 account password is needed. No analytics SDK or notification permission is used.
-Service choices can be changed using **Services**. Rental/purchase filtering
+Service choices can be changed using **Settings → Your streaming services**. Rental/purchase filtering
 cannot be turned off in this version.
 
 ## Results and limitations
+
+The screen shares EVMA's bundled wallpaper with a dark overlay, a translucent
+search field, and a responsive poster grid. Remote selection highlights each
+card; titles, release years, and service badges stay visible. A `+N` badge means
+additional services are available in the title's provider picker. Cards with no
+matching offer remain selectable and explain the scoped availability result.
+Loading, no matches, and network/catalog errors have separate screen states.
+
+Poster URLs come from the search response (`imageSet.verticalPoster.w240`, with
+`w360` fallback), so artwork needs no additional catalog lookup. Public image
+hosts receive HTTPS image requests without the catalog key. Two workers, bounded
+responses, an 8 MiB memory cache, and sampled decoding limit TV resource usage.
+Missing, unsupported/SVG, and failed images show a title placeholder. Artwork is
+cached only in memory. Searching is still explicit; typing does not send requests.
 
 - A single matching service attempts to open its title link in its installed app.
 - Multiple matching services show a picker before opening a link.
@@ -69,12 +83,16 @@ reading is labeled cached rather than presented as freshly fetched weather.
 The launcher binds only while visible; no always-running or foreground service
 is added. Weather data attribution is displayed on the card.
 
-For the local Windows updater, an explicitly supplied personal catalog key can
-be staged in the git-ignored `report/private/catalog-key.once`. The updater
-streams it through ADB standard input to a content provider restricted to ADB
+Manual setup is the active Windows workflow. APK updates use `install -r` to
+preserve the key and selected services; do not uninstall or clear app data.
+The preview updater does not attempt automatic key transfer. The following
+optional developer import endpoint remains available but is not used by updates.
+
+The optional developer endpoint accepts ADB standard input through a content provider restricted to ADB
 shell (UID 2000) and the system `DUMP` permission. The provider validates at most
 4096 bytes and saves the key in private preferences. This avoids external-storage
 access, which Fire OS can deny. Only a status value can be queried; the provider
-never returns the key. After confirmed success, the updater removes its local
-single-use file. Keys are never included in source, APKs, intent extras, command
+never returns the key. Any existing PC staging file remains in the ignored
+`report/private/` folder; the current update scripts do not read it.
+Keys are never included in source, APKs, intent extras, command
 arguments, logs, status output, or temporary files on the TV.

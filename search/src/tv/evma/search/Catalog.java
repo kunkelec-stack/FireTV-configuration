@@ -36,10 +36,10 @@ final class Catalog {
     }
 
     static final class Title {
-        final String name, detail;
+        final String name, detail, poster;
         final List<Offer> offers;
-        Title(String name, String detail, List<Offer> offers) {
-            this.name = name; this.detail = detail; this.offers = offers;
+        Title(String name, String detail, String poster, List<Offer> offers) {
+            this.name = name; this.detail = detail; this.poster = poster; this.offers = offers;
         }
     }
 
@@ -116,7 +116,11 @@ final class Catalog {
                 int year = show.optInt("releaseYear", show.optInt("firstAirYear", 0));
                 String detail = ("series".equals(show.optString("showType")) ? "TV series" : "Movie")
                         + (year > 0 ? " · " + year : "");
-                titles.add(new Title(name, detail, new ArrayList<>(offers.values())));
+                JSONObject images = show.optJSONObject("imageSet");
+                JSONObject vertical = images == null ? null : images.optJSONObject("verticalPoster");
+                String poster = vertical == null ? "" : vertical.optString("w240", "");
+                if (poster.isEmpty() && vertical != null) poster = vertical.optString("w360", "");
+                titles.add(new Title(name, detail, poster, new ArrayList<>(offers.values())));
             }
             return titles;
         } catch (JSONException e) {

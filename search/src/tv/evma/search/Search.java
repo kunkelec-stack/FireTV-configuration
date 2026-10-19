@@ -16,15 +16,20 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.text.TextUtils;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
+import android.widget.BaseAdapter;
+import android.widget.FrameLayout;
+import android.widget.GridView;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.IOException;
@@ -42,56 +47,124 @@ public final class Search extends Activity {
     private SharedPreferences prefs;
     private EditText query;
     private TextView status;
-    private LinearLayout results;
+    private GridView results;
+    private ProgressBar progress;
+    private TextView emptyTitle, emptyDetail;
+    private LinearLayout empty;
+    private final List<Catalog.Title> titles = new ArrayList<>();
+    private final Posters posters = new Posters();
+    private final BaseAdapter adapter = new BaseAdapter() {
+        @Override public int getCount() { return titles.size(); }
+        @Override public Object getItem(int position) { return titles.get(position); }
+        @Override public long getItemId(int position) { return position; }
+        @Override public View getView(int position, View reusable, ViewGroup parent) {
+            return posterCard(titles.get(position));
+        }
+    };
     private volatile int generation;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         prefs = getSharedPreferences("catalog", MODE_PRIVATE);
+        FrameLayout root = new FrameLayout(this);
+        ImageView wallpaper = new ImageView(this);
+        wallpaper.setImageResource(R.drawable.wallpaper);
+        wallpaper.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        root.addView(wallpaper, new FrameLayout.LayoutParams(-1, -1));
+        View shade = new View(this);
+        shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[] {0xC9081425, 0xE5091220, 0xFA080D17}));
+        root.addView(shade, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
-        column.setPadding(dp(48), dp(24), dp(48), dp(20));
-        column.setBackgroundColor(0xFF0B1220);
+        column.setPadding(dp(40), dp(18), dp(40), dp(12));
+        column.setClipChildren(false);
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = text("Find your next watch", 26);
+        TextView title = text("EVMA ♥  /  Discover", 22);
+        title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        head.addView(button("Services", this::services));
-        head.addView(button("Search setup", this::setup));
+        head.addView(button("⚙  Settings", this::settings));
         column.addView(head);
         LinearLayout entry = new LinearLayout(this);
         entry.setGravity(Gravity.CENTER_VERTICAL);
+        entry.setPadding(dp(16), dp(3), dp(5), dp(3));
+        entry.setBackground(background(0xB51B293D));
+        LinearLayout.LayoutParams entryLayout = new LinearLayout.LayoutParams(-1, dp(60));
+        entryLayout.setMargins(0, dp(10), 0, 0);
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(R.drawable.ic_search);
+        icon.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        entry.addView(icon, new LinearLayout.LayoutParams(dp(32), dp(26)));
         query = new EditText(this);
         query.setSingleLine(true);
         query.setTextColor(Color.WHITE);
         query.setHintTextColor(0x99FFFFFF);
         query.setHint("Search movies & shows");
         query.setTextSize(19);
+        query.setPadding(dp(8), dp(8), dp(12), dp(8));
+        query.setBackground(controlBackground());
+        query.setSelectAllOnFocus(true);
         query.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
         query.setInputType(InputType.TYPE_CLASS_TEXT);
         query.setOnEditorActionListener((v, action, event) -> {
             if (action == EditorInfo.IME_ACTION_SEARCH) { search(); return true; }
             return false;
         });
-        entry.addView(query, new LinearLayout.LayoutParams(0, dp(58), 1));
+        entry.addView(query, new LinearLayout.LayoutParams(0, dp(48), 1));
         entry.addView(button("Search", this::search));
-        column.addView(entry);
-        status = text("United States · Subscription and free only", 14);
-        status.setPadding(0, dp(12), 0, dp(10));
-        column.addView(status);
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFocusable(false);
-        results = new LinearLayout(this);
-        results.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(results);
-        column.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        TextView source = text("Availability: Movie of the Night · US catalog coverage varies by service and season.", 12);
+        column.addView(entry, entryLayout);
+        LinearLayout summary = new LinearLayout(this);
+        summary.setGravity(Gravity.CENTER_VERTICAL);
+        progress = new ProgressBar(this);
+        progress.setVisibility(View.GONE);
+        LinearLayout.LayoutParams spinner = new LinearLayout.LayoutParams(dp(20), dp(20));
+        spinner.setMargins(0, 0, dp(10), 0);
+        summary.addView(progress, spinner);
+        status = text("United States · Subscription & free", 13);
+        status.setTextColor(0xFFB8C8DB);
+        summary.addView(status, new LinearLayout.LayoutParams(-1, -2));
+        column.addView(summary, new LinearLayout.LayoutParams(-1, dp(36)));
+        FrameLayout content = new FrameLayout(this);
+        results = new GridView(this);
+        results.setNumColumns(GridView.AUTO_FIT);
+        results.setColumnWidth(dp(140));
+        results.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        results.setHorizontalSpacing(dp(14));
+        results.setVerticalSpacing(dp(16));
+        results.setPadding(dp(5), dp(5), dp(5), dp(12));
+        results.setClipToPadding(false);
+        results.setSelector(android.R.color.transparent);
+        results.setDrawSelectorOnTop(false);
+        results.setAdapter(adapter);
+        results.setOnItemClickListener((parent, view, position, id) -> choose(titles.get(position)));
+        content.addView(results, new FrameLayout.LayoutParams(-1, -1));
+        empty = new LinearLayout(this);
+        empty.setOrientation(LinearLayout.VERTICAL);
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(dp(30), dp(12), dp(30), dp(12));
+        TextView mark = text("✧", 38);
+        mark.setTextColor(0xFFB8D7FF);
+        empty.addView(mark);
+        emptyTitle = text("Something good is waiting", 24);
+        emptyTitle.setGravity(Gravity.CENTER);
+        empty.addView(emptyTitle);
+        emptyDetail = text("Search a movie or show to find where you can watch it.", 15);
+        emptyDetail.setGravity(Gravity.CENTER);
+        emptyDetail.setTextColor(0xFFB8C8DB);
+        emptyDetail.setPadding(0, dp(10), 0, 0);
+        empty.addView(emptyDetail);
+        content.addView(empty, new FrameLayout.LayoutParams(-1, -1));
+        column.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
+        TextView source = text("Movie of the Night · US subscription & free · Availability varies by service and season", 11);
         source.setTextColor(0x99FFFFFF);
         column.addView(source);
-        setContentView(column);
+        root.addView(column, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(root);
         query.requestFocus();
         if (prefs.getString("key", "").isEmpty()) {
-            status.setText("Open Search setup to add your catalog key. Your streaming passwords are not needed.");
+            showEmpty("Let's set up movie night", "Open Settings → Search setup to add your catalog key.");
         }
     }
 
@@ -112,7 +185,9 @@ public final class Search extends Activity {
         if (selection.isEmpty()) { status.setText("Choose at least one service first."); services(); return; }
         ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(query.getWindowToken(), 0);
         int ticket = ++generation;
-        results.removeAllViews();
+        clearResults();
+        progress.setVisibility(View.VISIBLE);
+        showEmpty("Finding your next watch", "Checking your selected US subscription and free services…");
         status.setText("Searching US subscription and free catalogs…");
         io.execute(() -> {
             if (ticket != generation) return;
@@ -120,30 +195,28 @@ public final class Search extends Activity {
                 List<Catalog.Title> found = Catalog.search(term, key, selection);
                 ui.post(() -> {
                     if (ticket != generation || isDestroyed()) return;
-                    status.setText(found.isEmpty() ? "No matching titles found. Try another name."
-                            : "Select a title to see where to watch.");
-                    for (Catalog.Title item : found) {
-                        String availability;
-                        if (item.offers.isEmpty()) availability = "Not listed on your selected services";
-                        else {
-                            List<String> names = new ArrayList<>();
-                            for (Catalog.Offer offer : item.offers) names.add(offer.service);
-                            availability = String.join(" · ", names);
-                        }
-                        Button row = button(item.name + "\n" + item.detail + "\n" + availability, () -> choose(item));
-                        row.setAllCaps(false);
-                        row.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-                        row.setPadding(dp(16), dp(12), dp(16), dp(12));
-                        results.addView(row, new LinearLayout.LayoutParams(-1, -2));
+                    progress.setVisibility(View.GONE);
+                    titles.addAll(found);
+                    adapter.notifyDataSetChanged();
+                    status.setText(found.isEmpty() ? "No matching titles"
+                            : found.size() + " titles · Select a poster to see where to watch");
+                    if (found.isEmpty()) showEmpty("No titles found", "Try a different title or check the spelling.");
+                    else {
+                        empty.setVisibility(View.GONE);
+                        results.setSelection(0);
+                        results.requestFocus();
                     }
-                    if (results.getChildCount() > 0) results.getChildAt(0).requestFocus();
                 });
             } catch (IOException e) {
                 String message = e.getMessage();
                 // Network failures must never be reported as title unavailability.
                 ui.post(() -> {
-                    if (ticket == generation && !isDestroyed()) status.setText(
-                            "Could not check availability. " + (message == null ? "Check your connection and try again." : message));
+                    if (ticket == generation && !isDestroyed()) {
+                        progress.setVisibility(View.GONE);
+                        status.setText("Availability check failed");
+                        showEmpty("Couldn't reach the catalog", message == null
+                                ? "Check your connection and try again." : message);
+                    }
                 });
             }
         });
@@ -225,11 +298,13 @@ public final class Search extends Activity {
                         }
                         ++generation;
                         prefs.edit().putString("key", value).apply();
-                        results.removeAllViews();
+                        clearResults();
+                        showEmpty("You're ready for movie night", "Search a title to find where to watch.");
                         status.setText("Key saved. Search for a movie or TV show.");
                     }
                 }).setNeutralButton("Remove key", (dialog, which) -> {
-                    ++generation; prefs.edit().remove("key").apply(); results.removeAllViews();
+                    ++generation; prefs.edit().remove("key").apply(); clearResults();
+                    showEmpty("Search needs a catalog key", "Open Settings → Search setup to add one.");
                     status.setText("Catalog key removed. Add one in Search setup to enable searches.");
                 }).setNegativeButton("Cancel", null).show();
     }
@@ -244,12 +319,108 @@ public final class Search extends Activity {
                     if (on) choice.add(id); else choice.remove(id);
                 }).setPositiveButton("Save", (dialog, which) -> {
                     ++generation; prefs.edit().putStringSet("services", choice).apply();
-                    results.removeAllViews(); status.setText("Services updated. Run a new search.");
+                    clearResults(); status.setText("Services updated. Run a new search.");
+                    showEmpty("Your services, your movie night", "Search again to check your updated selection.");
                 }).setNegativeButton("Cancel", null).show();
     }
 
     private void message(String title, String detail) {
         new AlertDialog.Builder(this).setTitle(title).setMessage(detail).setPositiveButton("OK", null).show();
+    }
+
+    private void settings() {
+        new AlertDialog.Builder(this).setTitle("Search settings")
+                .setItems(new String[] {"Your streaming services", "Search setup"}, (dialog, which) -> {
+                    if (which == 0) services(); else setup();
+                }).setNegativeButton("Close", null).show();
+    }
+
+    private void clearResults() {
+        progress.setVisibility(View.GONE);
+        posters.cancelPending();
+        titles.clear();
+        adapter.notifyDataSetChanged();
+    }
+
+    private void showEmpty(String heading, String detail) {
+        emptyTitle.setText(heading);
+        emptyDetail.setText(detail);
+        empty.setVisibility(View.VISIBLE);
+    }
+
+    private View posterCard(Catalog.Title item) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(4), dp(4), dp(4), dp(8));
+        card.setBackground(controlBackground());
+        card.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        StringBuilder available = new StringBuilder();
+        for (Catalog.Offer offer : item.offers) {
+            if (available.length() > 0) available.append(", ");
+            available.append(offer.label());
+        }
+        card.setContentDescription(item.name + ", " + item.detail + ", "
+                + (available.length() == 0 ? "Not listed on your selected services" : available));
+        FrameLayout art = new FrameLayout(this);
+        art.setBackground(background(0xFF1C2A3C));
+        art.setClipToOutline(true);
+        TextView fallback = text(item.name, 19);
+        fallback.setGravity(Gravity.CENTER);
+        fallback.setMaxLines(5);
+        fallback.setEllipsize(TextUtils.TruncateAt.END);
+        fallback.setPadding(dp(12), dp(12), dp(12), dp(12));
+        art.addView(fallback, new FrameLayout.LayoutParams(-1, -1));
+        ImageView image = new ImageView(this);
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        art.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        card.addView(art, new LinearLayout.LayoutParams(-1, dp(192)));
+        posters.load(item.poster, image);
+        TextView name = text(item.name, 15);
+        name.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        name.setSingleLine(true);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        name.setPadding(dp(5), dp(8), dp(5), 0);
+        card.addView(name, new LinearLayout.LayoutParams(-1, dp(31)));
+        TextView detail = text(item.detail, 12);
+        detail.setTextColor(0xFFB8C8DB);
+        detail.setPadding(dp(5), 0, dp(5), 0);
+        detail.setSingleLine(true);
+        card.addView(detail, new LinearLayout.LayoutParams(-1, dp(20)));
+        LinearLayout badges = new LinearLayout(this);
+        badges.setGravity(Gravity.CENTER_VERTICAL);
+        badges.setPadding(dp(5), dp(5), dp(5), 0);
+        if (item.offers.isEmpty()) {
+            TextView unavailable = text("Not on your services", 10);
+            unavailable.setTextColor(0xFFD9BC9A);
+            badges.addView(unavailable);
+        } else {
+            Catalog.Offer first = item.offers.get(0);
+            TextView badge = text(first.service, 10);
+            badge.setSingleLine(true);
+            badge.setEllipsize(TextUtils.TruncateAt.END);
+            badge.setPadding(dp(7), dp(3), dp(7), dp(3));
+            badge.setBackground(background(serviceColor(first.key)));
+            badges.addView(badge, new LinearLayout.LayoutParams(0, -2, 1));
+            if (item.offers.size() > 1) {
+                TextView count = text(" +" + (item.offers.size() - 1), 11);
+                count.setTextColor(0xFFD1E5FF);
+                badges.addView(count);
+            }
+        }
+        card.addView(badges, new LinearLayout.LayoutParams(-1, dp(29)));
+        return card;
+    }
+
+    private int serviceColor(String key) {
+        switch (key) {
+            case "netflix": return 0xFF922735;
+            case "primevideo": return 0xFF185C83;
+            case "disney": return 0xFF344F9F;
+            case "hulu": return 0xFF186B4B;
+            case "hbomax": return 0xFF4E3990;
+            case "tubi": return 0xFF675122;
+            default: return 0xFF334B66;
+        }
     }
 
     private TextView text(String value, int size) {
@@ -261,15 +432,30 @@ public final class Search extends Activity {
 
     private Button button(String value, Runnable action) {
         Button view = new Button(this);
-        view.setText(value); view.setTextColor(Color.WHITE); view.setTextSize(15);
-        StateListDrawable state = new StateListDrawable();
-        state.addState(new int[] {android.R.attr.state_focused}, background(0xFF285FB7));
-        state.addState(new int[0], background(0xFF1C293C));
-        view.setBackground(state); view.setPadding(dp(16), dp(10), dp(16), dp(10));
+        view.setText(value); view.setTextColor(Color.WHITE); view.setTextSize(14);
+        view.setAllCaps(false);
+        view.setMinHeight(dp(44));
+        view.setMinimumHeight(dp(44));
+        view.setSingleLine(true);
+        view.setIncludeFontPadding(true);
+        view.setBackground(controlBackground()); view.setPadding(dp(18), dp(8), dp(18), dp(8));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2);
         lp.setMargins(dp(4), dp(4), dp(4), dp(4)); view.setLayoutParams(lp);
         view.setOnClickListener(v -> action.run());
         return view;
+    }
+
+    private StateListDrawable controlBackground() {
+        StateListDrawable state = new StateListDrawable();
+        GradientDrawable focused = background(0xE8355479);
+        focused.setStroke(dp(2), 0xFFD6E9FF);
+        GradientDrawable selected = background(0xE8355479);
+        selected.setStroke(dp(2), 0xFFD6E9FF);
+        state.addState(new int[] {android.R.attr.state_focused}, focused);
+        state.addState(new int[] {android.R.attr.state_selected}, selected);
+        state.addState(new int[] {android.R.attr.state_pressed}, background(0xFF466B98));
+        state.addState(new int[0], background(0xA51B293D));
+        return state;
     }
 
     private GradientDrawable background(int color) {
@@ -279,6 +465,6 @@ public final class Search extends Activity {
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
     @Override protected void onDestroy() {
-        ++generation; io.shutdownNow(); super.onDestroy();
+        ++generation; io.shutdownNow(); posters.close(); super.onDestroy();
     }
 }
