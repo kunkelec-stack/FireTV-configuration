@@ -2,6 +2,7 @@ package tv.dumbtv.home;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.StateListDrawable;
@@ -18,6 +19,7 @@ import android.view.ViewGroup;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -191,10 +193,13 @@ public final class Options extends Activity {
     private void openTvSettings() {
         Intent leanback = new Intent(Intent.ACTION_MAIN)
                 .addCategory("android.intent.category.LEANBACK_SETTINGS");
-        if (leanback.resolveActivity(getPackageManager()) != null) {
-            startActivity(leanback);
-        } else {
-            startActivity(new Intent(Settings.ACTION_SETTINGS));
+        try {
+            Intent target = leanback.resolveActivity(getPackageManager()) != null
+                    ? leanback : new Intent(Settings.ACTION_SETTINGS);
+            startActivity(target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED));
+        } catch (ActivityNotFoundException | SecurityException e) {
+            Toast.makeText(this, "Could not open TV settings", Toast.LENGTH_SHORT).show();
         }
     }
 
