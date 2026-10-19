@@ -159,6 +159,31 @@ Rotten Tomatoes® and its score marks belong to their respective owners. The
 app displays brand/source attribution; imported resources grant no broader
 trademark license. See the linked brand guidance for distribution requirements.
 
+### Private library backup
+
+The local Windows `Backup-EvmaTV-Watchlists.ps1` helper adds the export feature
+through an in-place app update, preserving app data and first saving the previous
+APK. Run it after finishing watchlist edits. It reads a shell-only, DUMP-protected
+content endpoint at `content://tv.evma.search.provision/library-backup` directly
+into a PC file without relying on Fire OS external-storage access.
+
+The version-1 `evma-library-backup` JSON contains active profile and all three
+profiles' watchlist metadata, recent searches, watched identities, service choices,
+last pick and filters. Only those fields are exported. API keys, streaming logins,
+weather/ratings caches and device identifiers are excluded. No TV preferences are
+written by the export endpoint. Invalid stored library data fails the export
+rather than silently replacing it with empty lists.
+
+The helper checks the format and profile/title counts, refuses to declare success
+for an unexpectedly empty library, verifies launcher settings remain unchanged,
+and writes `watchlists.json` with a SHA-256 sidecar in local `outputs/EVMA-backups/`.
+Only a reported successful export is a completed backup; an APK backup alone is
+not a watchlist backup. Keep the JSON and checksum together. It is a data export
+for library recovery, not a firmware image or a tested system recovery backup.
+
+Ratings errors do not prevent library export. Quota messages in HTTP 401/403
+error bodies are recognized as limits before falling back to the key/access error.
+
 Poster URLs come from the search response (`imageSet.verticalPoster.w240`, with
 `w360` fallback), so artwork needs no additional catalog lookup. Public image
 hosts receive HTTPS image requests without the catalog key. Two workers, bounded

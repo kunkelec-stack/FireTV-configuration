@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import org.json.JSONArray;
 import org.json.JSONException;
+import org.json.JSONObject;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -54,6 +55,43 @@ final class Library {
         store().edit().putString("recent", new JSONArray(recent.subList(0, Math.min(recent.size(), 20))).toString()).apply();
     }
     boolean clearRecent() { return store().edit().remove("recent").commit(); }
+    static String backup(Context context) throws IOException {
+        try {
+            JSONObject root = new JSONObject();
+            root.put("format", "evma-library-backup").put("version", 1)
+                    .put("exportedAt", System.currentTimeMillis());
+            root.put("active", context.getSharedPreferences("profiles", Context.MODE_PRIVATE).getString("active", IDS[0]));
+            JSONObject profiles = new JSONObject();
+            Set<String> defaults = new HashSet<>();
+            for (String service : Catalog.SERVICES) defaults.add(Catalog.serviceKey(service));
+            Set<String> legacyServices = context.getSharedPreferences("catalog", Context.MODE_PRIVATE).getStringSet("services", defaults);
+            for (String id : IDS) {
+                SharedPreferences data = context.getSharedPreferences("library-" + id, Context.MODE_PRIVATE);
+                List<Catalog.Title> titles = Catalog.parse(data.getString("watchlist", "[]"), new HashSet<String>());
+                JSONArray watchlist = new JSONArray();
+                for (Catalog.Title title : titles) watchlist.put(title.snapshot());
+                JSONObject profile = new JSONObject();
+                profile.put("watchlist", watchlist);
+                profile.put("recent", new JSONArray(data.getString("recent", "[]")));
+                profile.put("watched", new JSONArray(data.getStringSet("watched", new HashSet<String>())));
+                profile.put("services", new JSONArray(data.getStringSet("services", legacyServices)));
+                profile.put("lastPick", data.getString("lastPick", ""));
+                JSONObject filters = new JSONObject();
+                for (String prefix : new String[] {"filter.", "pick."}) {
+                    filters.put(prefix + "type", data.getInt(prefix + "type", 0));
+                    filters.put(prefix + "watched", data.getInt(prefix + "watched", 0));
+                    filters.put(prefix + "minutes", data.getInt(prefix + "minutes", 0));
+                    filters.put(prefix + "genre", data.getString(prefix + "genre", ""));
+                }
+                profile.put("filters", filters);
+                profiles.put(id, profile);
+            }
+            root.put("profiles", profiles);
+            String json = root.toString();
+            if (json.length() > 8 * 1024 * 1024) throw new IOException("Backup is too large");
+            return json;
+        } catch (JSONException | ClassCastException e) { throw new IOException("Saved library could not be exported", e); }
+    }
     boolean watched(Catalog.Title item) {
         return store().getStringSet("watched", new HashSet<String>()).contains(item.identity());
     }

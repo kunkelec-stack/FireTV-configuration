@@ -11,9 +11,10 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 
-/** Shell-only streaming import: no external storage or key-bearing arguments. */
+/** Shell-only private setup and key-free library export, without external storage. */
 public final class KeyProvider extends ContentProvider {
     private volatile String status = "idle";
 
@@ -26,6 +27,22 @@ public final class KeyProvider extends ContentProvider {
 
     @Override public synchronized ParcelFileDescriptor openFile(Uri uri, String mode)
             throws FileNotFoundException {
+        if ("/library-backup".equals(uri.getPath())) {
+            check(uri, "/library-backup");
+            if (!"r".equals(mode)) throw new FileNotFoundException("Read-only backup");
+            final byte[] data;
+            final ParcelFileDescriptor[] pipe;
+            try {
+                data = Library.backup(getContext()).getBytes(StandardCharsets.UTF_8);
+                pipe = ParcelFileDescriptor.createPipe();
+            } catch (IOException | SecurityException ignored) { throw new FileNotFoundException("Backup unavailable"); }
+            new Thread(() -> {
+                try (OutputStream output = new ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
+                    output.write(data);
+                } catch (IOException ignored) { /* Client verifies complete JSON before accepting the backup. */ }
+            }, "library-backup").start();
+            return pipe[0];
+        }
         check(uri, "/key");
         if (!"w".equals(mode) || "importing".equals(status))
             throw new FileNotFoundException("Import unavailable");

@@ -178,7 +178,20 @@ final class Ratings {
             connection.setConnectTimeout(6000); connection.setReadTimeout(8000);
             connection.setInstanceFollowRedirects(false);
             int code = connection.getResponseCode();
-            if (code == 401 || code == 403) return AUTH;
+            if (code == 401 || code == 403) {
+                // Some providers use authentication status codes for exhausted quotas.
+                InputStream error = connection.getErrorStream();
+                if (error != null) try (InputStream input = error; ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+                    byte[] chunk = new byte[1024]; int count;
+                    while ((count = input.read(chunk)) != -1) {
+                        if (bytes.size() + count > 16384) break;
+                        bytes.write(chunk, 0, count);
+                    }
+                    String message = new String(bytes.toByteArray(), StandardCharsets.UTF_8).toLowerCase(Locale.ROOT);
+                    if (message.contains("limit") || message.contains("quota") || message.contains("too many requests")) return QUOTA;
+                }
+                return AUTH;
+            }
             if (code == 429) return QUOTA;
             if (audience && code == 404) return NONE;
             if (code != 200) return ERROR;
