@@ -6,6 +6,12 @@ EVMA's top navigation contains **Search movies & shows**, **Inputs**, and
 **Settings**. The app row stays below the welcome message. Search opens the
 optional [search companion](../search/README.md), which needs its own catalog
 API key and has Internet permission. The home launcher itself stays offline.
+The same companion supplies a Fairfield, Ohio weather card beside the welcome
+area. It uses Open-Meteo, requires no weather key, and labels cached readings.
+Focusing an app replaces the greeting with a short local description; focusing
+the top navigation restores the greeting. These descriptions make no catalog calls.
+Use **Settings → App order** to select an app and move it earlier, later, first,
+or last. The existing hold-OK move control also remains available.
 
 - **41 KB APK.** Plain Java and Android views: no AndroidX, Kotlin, Compose, Play
   Services or other libraries.

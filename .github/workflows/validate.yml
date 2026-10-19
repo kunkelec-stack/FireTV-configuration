@@ -38,8 +38,10 @@ jobs:
           curl -fsSL 'https://repo.maven.apache.org/maven2/org/json/json/20240303/json-20240303.jar' -o "$RUNNER_TEMP/evma-json.jar"
           echo "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed  $RUNNER_TEMP/evma-json.jar" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/evma-search-tests"
-          javac --release 8 -encoding UTF-8 -cp "$RUNNER_TEMP/evma-json.jar" -d "$RUNNER_TEMP/evma-search-tests" search/src/tv/evma/search/Catalog.java search/tests/tv/evma/search/CatalogTest.java
+          javac --release 8 -encoding UTF-8 -cp "$RUNNER_TEMP/evma-json.jar" -d "$RUNNER_TEMP/evma-search-tests" search/src/tv/evma/search/Catalog.java search/tests/tv/evma/search/CatalogTest.java search/src/tv/evma/search/WeatherData.java search/tests/tv/evma/search/WeatherDataTest.java launcher/src/tv/dumbtv/home/Order.java launcher/tests/tv/dumbtv/home/OrderTest.java
           java -cp "$RUNNER_TEMP/evma-search-tests:$RUNNER_TEMP/evma-json.jar" tv.evma.search.CatalogTest
+          java -cp "$RUNNER_TEMP/evma-search-tests:$RUNNER_TEMP/evma-json.jar" tv.evma.search.WeatherDataTest
+          java -cp "$RUNNER_TEMP/evma-search-tests:$RUNNER_TEMP/evma-json.jar" tv.dumbtv.home.OrderTest
 
   scripts:
     runs-on: ubuntu-latest

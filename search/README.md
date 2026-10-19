@@ -53,3 +53,27 @@ The search manifest declares no HOME intent filter or accessibility service.
 Back returns to EVMA. Amazon remains the preview's HOME target. Rolling back the
 launcher APK does not require removing the search app or changing streaming apps.
 Uninstalling the search app deletes its own API key and service settings.
+
+## Fairfield weather and automatic key setup
+
+The companion also provides Fairfield, Ohio weather to the home screen through
+a bound Messenger service. Requests are accepted only from the installed
+`tv.dumbtv.home` package when it has the same signing certificate. Build the
+launcher first; both APKs must use the same private signing key.
+
+Weather uses the [Open-Meteo API](https://open-meteo.com/en/docs), fixed Fairfield
+city-center coordinates, Fahrenheit, and America/New_York time. It needs no API
+key or location permission and does not consume movie-search requests. Successful
+responses are cached for 20 minutes. Failures are rate-limited, and an older
+reading is labeled cached rather than presented as freshly fetched weather.
+The launcher binds only while visible; no always-running or foreground service
+is added. Weather data attribution is displayed on the card.
+
+For the local Windows updater, an explicitly supplied personal catalog key can
+be staged in the git-ignored `report/private/catalog-key.once`. The updater
+transfers it into the companion's own external-files directory, then invokes
+the `.Provision` activity, which requires the system `DUMP` permission held by
+ADB shell. The importer validates the input, deletes the TV transfer file, and
+saves the key in private preferences. After success, the updater removes its
+local single-use file too. Keys are never included in source, APKs, intent
+extras, command arguments, logs, or status files. Cleanup failures are reported.

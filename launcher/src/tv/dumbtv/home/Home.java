@@ -5,8 +5,10 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -14,10 +16,15 @@ import android.media.tv.TvInputManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
+import android.os.Message;
+import android.os.Messenger;
+import android.os.RemoteException;
 import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.text.style.RelativeSizeSpan;
 import android.view.Gravity;
@@ -57,10 +64,61 @@ public final class Home extends Activity {
     private ImageView wall;
     private View shade;
     private TextView clock, date;
+    private TextView eyebrow, headline, description;
+    private TextView weatherTemperature, weatherCondition, weatherCaption;
+    private Messenger weatherRemote;
+    private boolean weatherBound, weatherCached;
+    private long weatherObserved;
+    private String weatherRange = "";
     private Row apps;
     private List<Item> inputItems = new ArrayList<>();
     private Tile moving;
     private String wallKey;
+
+    private final Runnable weatherTimeout = () -> {
+        if (weatherObserved == 0 && !isDestroyed()) {
+            weatherCondition.setText("Weather unavailable");
+            weatherCaption.setText("Will retry when you return home");
+        }
+    };
+
+    private final Messenger weatherReplies = new Messenger(new Handler(Looper.getMainLooper(), message -> {
+        if (isDestroyed() || message.what != 1) return true;
+        ui.removeCallbacks(weatherTimeout);
+        Bundle data = message.getData();
+        if (data.getBoolean("ok")) {
+            weatherTemperature.setText(data.getString("temperature", "—"));
+            weatherCondition.setText(data.getString("condition", ""));
+            weatherObserved = data.getLong("observedAt");
+            weatherCached = data.getBoolean("cached");
+            weatherRange = data.getString("range", "");
+            updateWeatherAge();
+        } else if (weatherObserved == 0) {
+            weatherTemperature.setText("— °F");
+            weatherCondition.setText("Weather unavailable");
+            weatherCaption.setText("Will retry when you return home");
+        } else {
+            weatherCached = true;
+            updateWeatherAge();
+        }
+        return true;
+    }));
+
+    private final ServiceConnection weatherConnection = new ServiceConnection() {
+        @Override public void onServiceConnected(ComponentName name, IBinder service) {
+            weatherRemote = new Messenger(service);
+            requestWeather();
+        }
+        @Override public void onServiceDisconnected(ComponentName name) { weatherRemote = null; }
+    };
+
+    private final Runnable weatherRefresh = new Runnable() {
+        @Override public void run() {
+            if (!resumed) return;
+            requestWeather();
+            ui.postDelayed(this, 20 * 60 * 1000L);
+        }
+    };
 
     private final BroadcastReceiver packages = new BroadcastReceiver() {
         @Override
@@ -166,6 +224,8 @@ public final class Home extends Activity {
         f.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         registerReceiver(time, f);
         tick();
+        bindWeather();
+        ui.post(weatherRefresh);
     }
 
     @Override
@@ -177,6 +237,13 @@ public final class Home extends Activity {
     protected void onPause() {
         super.onPause();
         resumed = false;
+        ui.removeCallbacks(weatherRefresh);
+        ui.removeCallbacks(weatherTimeout);
+        if (weatherBound) {
+            unbindService(weatherConnection);
+            weatherBound = false;
+            weatherRemote = null;
+        }
         unregisterReceiver(time);
         if (moving != null) stopMoving();
     }
@@ -264,6 +331,7 @@ public final class Home extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setClipChildren(false);
+        scroll.setClipToPadding(false);
         root.addView(scroll, new FrameLayout.LayoutParams(MATCH, MATCH));
 
         LinearLayout column = new LinearLayout(this) {
@@ -284,6 +352,8 @@ public final class Home extends Activity {
 
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setClipChildren(false);
+        head.setClipToPadding(false);
         head.setPadding(dp(56), 0, dp(56), dp(12));
         TextView brand = Ui.text(this, 21, Ui.TEXT, Ui.MEDIUM);
         brand.setText("EVMA \u2764\uFE0F");
@@ -291,6 +361,9 @@ public final class Home extends Activity {
 
         LinearLayout nav = new LinearLayout(this);
         nav.setGravity(Gravity.CENTER);
+        nav.setClipChildren(false);
+        nav.setClipToPadding(false);
+        nav.setPadding(0, dp(5), 0, dp(5));
         TextView searchBar = chip("Search movies & shows", v -> openSearch());
         searchBar.setMinWidth(dp(245));
         searchBar.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
@@ -313,20 +386,55 @@ public final class Home extends Activity {
         column.addView(head, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         LinearLayout welcome = new LinearLayout(this);
-        welcome.setOrientation(LinearLayout.VERTICAL);
-        welcome.setPadding(dp(56), dp(42), dp(56), dp(28));
-        TextView eyebrow = Ui.text(this, 12, Ui.MUTED, Ui.MEDIUM);
+        welcome.setGravity(Gravity.CENTER_VERTICAL);
+        welcome.setPadding(dp(56), dp(26), dp(56), dp(20));
+        LinearLayout details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        details.setMinimumHeight(dp(172));
+        eyebrow = Ui.text(this, 12, Ui.MUTED, Ui.MEDIUM);
         eyebrow.setText("WELCOME HOME");
         eyebrow.setLetterSpacing(0.18f);
-        welcome.addView(eyebrow);
-        TextView title = Ui.text(this, 36, Ui.TEXT, Ui.LIGHT);
-        title.setText("Hello Evan & Emma");
-        title.setPadding(0, dp(14), 0, 0);
-        welcome.addView(title);
-        TextView subtitle = Ui.text(this, 16, Ui.MUTED, Ui.MEDIUM);
-        subtitle.setText("Make yourself at home.");
-        subtitle.setPadding(0, dp(10), 0, 0);
-        welcome.addView(subtitle);
+        details.addView(eyebrow);
+        headline = Ui.text(this, 36, Ui.TEXT, Ui.LIGHT);
+        headline.setSingleLine(true);
+        headline.setEllipsize(TextUtils.TruncateAt.END);
+        headline.setText("Hello Evan & Emma");
+        headline.setPadding(0, dp(14), 0, dp(4));
+        headline.setIncludeFontPadding(true);
+        details.addView(headline);
+        description = Ui.text(this, 16, Ui.TEXT, Ui.MEDIUM);
+        description.setText("Make yourself at home.");
+        description.setMinLines(3);
+        description.setMaxLines(3);
+        description.setEllipsize(TextUtils.TruncateAt.END);
+        description.setLineSpacing(dp(3), 1f);
+        description.setPadding(0, dp(10), dp(24), 0);
+        details.addView(description);
+        welcome.addView(details, new LinearLayout.LayoutParams(0, WRAP, 1f));
+
+        LinearLayout weather = new LinearLayout(this);
+        weather.setOrientation(LinearLayout.VERTICAL);
+        weather.setPadding(dp(18), dp(16), dp(18), dp(14));
+        weather.setBackground(Ui.round(0xAA101B2A, dp(16)));
+        TextView city = Ui.text(this, 12, Ui.MUTED, Ui.MEDIUM);
+        city.setText("FAIRFIELD, OH");
+        weather.addView(city);
+        weatherTemperature = Ui.text(this, 27, Ui.TEXT, Ui.MEDIUM);
+        weatherTemperature.setText("— °F");
+        weatherTemperature.setPadding(0, dp(9), 0, dp(6));
+        weather.addView(weatherTemperature);
+        weatherCondition = Ui.text(this, 14, Ui.TEXT, Ui.MEDIUM);
+        weatherCondition.setText("Checking weather…");
+        weather.addView(weatherCondition);
+        weatherCaption = Ui.text(this, 11, Ui.MUTED, Ui.MEDIUM);
+        weatherCaption.setPadding(0, dp(8), 0, 0);
+        weatherCaption.setMinLines(2);
+        weather.addView(weatherCaption);
+        TextView weatherSource = Ui.text(this, 10, Ui.MUTED, Ui.MEDIUM);
+        weatherSource.setText("Weather by Open-Meteo");
+        weatherSource.setPadding(0, dp(4), 0, 0);
+        weather.addView(weatherSource);
+        welcome.addView(weather, new LinearLayout.LayoutParams(dp(210), WRAP));
         column.addView(welcome, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         apps = new Row(Catalog.APPS, "Apps", column);
@@ -355,16 +463,22 @@ public final class Home extends Activity {
     private TextView chip(String label, View.OnClickListener click) {
         TextView v = Ui.text(this, 14, Ui.TEXT, Ui.MEDIUM);
         v.setText(label);
+        v.setSingleLine(true);
+        v.setIncludeFontPadding(true);
+        v.setMinHeight(dp(44));
         v.setGravity(Gravity.CENTER);
         v.setPadding(dp(18), dp(9), dp(18), dp(9));
         v.setFocusable(true);
         v.setClickable(true);
         v.setOnClickListener(click);
-        v.setOnFocusChangeListener((view, has) ->
-                view.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f).setDuration(110).start());
+        v.setOnFocusChangeListener((view, has) -> {
+            view.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f).setDuration(110).start();
+            if (has) showWelcome();
+        });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
         lp.leftMargin = dp(10);
         lp.topMargin = dp(6);
+        lp.bottomMargin = dp(6);
         v.setLayoutParams(lp);
         chips.add(v);
         return v;
@@ -437,6 +551,7 @@ public final class Home extends Activity {
         int index = 0, restore = -1;
         for (Item it : shown) {
             Tile t = new Tile(this, it, row.kind, Catalog.label(cfg, it), w, h, labels, accent);
+            t.setOnFocusChangeListener((view, has) -> { if (has) showApp(it); });
             t.setOnClickListener(v -> open((Tile) v));
             t.setOnLongClickListener(v -> {
                 menu((Tile) v);
@@ -492,7 +607,50 @@ public final class Home extends Activity {
         launch(new Intent("tv.evma.search.SEARCH").setPackage("tv.evma.search"), null);
     }
 
+    private void showWelcome() {
+        if (eyebrow == null) return;
+        eyebrow.setText("WELCOME HOME");
+        headline.setText("Hello Evan & Emma");
+        description.setText("Make yourself at home.");
+    }
+
+    private void showApp(Item item) {
+        eyebrow.setText("EXPLORE " + item.label.toString().toUpperCase(Locale.ROOT));
+        headline.setText(Catalog.label(cfg, item));
+        description.setText(AppDetails.description(item.label.toString()) + "\nPress OK to open.");
+    }
+
+    private void bindWeather() {
+        if (weatherBound) return;
+        try {
+            Intent intent = new Intent().setClassName("tv.evma.search", "tv.evma.search.WeatherService");
+            weatherBound = bindService(intent, weatherConnection, Context.BIND_AUTO_CREATE);
+        } catch (SecurityException | IllegalArgumentException ignored) { weatherBound = false; }
+        if (!weatherBound && weatherObserved == 0) weatherCondition.setText("Weather unavailable");
+        if (weatherBound) ui.postDelayed(weatherTimeout, 25000);
+    }
+
+    private void requestWeather() {
+        if (weatherRemote == null) return;
+        Message message = Message.obtain(null, 1);
+        message.replyTo = weatherReplies;
+        try {
+            ui.removeCallbacks(weatherTimeout);
+            ui.postDelayed(weatherTimeout, 25000);
+            weatherRemote.send(message);
+        }
+        catch (RemoteException ignored) { weatherRemote = null; }
+    }
+
+    private void updateWeatherAge() {
+        if (weatherObserved == 0) return;
+        boolean stale = weatherCached || System.currentTimeMillis() - weatherObserved > 40 * 60 * 1000L;
+        String updated = DateFormat.format("h:mm a", new Date(weatherObserved)).toString();
+        weatherCaption.setText(weatherRange + "\n" + (stale ? "Cached · " : "Updated ") + updated);
+    }
+
     private void tick() {
+        updateWeatherAge();
         String mode = cfg.get(Config.CLOCK);
         boolean h24 = "24h".equals(mode) || "auto".equals(mode) && DateFormat.is24HourFormat(this);
         Date now = new Date();

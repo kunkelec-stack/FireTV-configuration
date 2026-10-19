@@ -9,11 +9,11 @@ BT=$(find "$SDK/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1
 [[ -f $JAR && -x $BT/aapt2 && -x ${JAVA_HOME:-}/bin/javac ]] || {
   echo 'Needs JAVA_HOME (JDK 17) and ANDROID_HOME (API 28, build-tools).' >&2; exit 1;
 }
-KEYSTORE=${DUMBTV_KEYSTORE:-$PWD/release.keystore}
+KEYSTORE=${DUMBTV_KEYSTORE:-$PWD/../launcher/release.keystore}
 KEYPASS=${DUMBTV_KEYPASS:-dumbtvhome}
 if [[ ! -f $KEYSTORE ]]; then
-  "$JAVA_HOME/bin/keytool" -genkeypair -keystore "$KEYSTORE" -alias home -keyalg RSA -keysize 2048 \
-    -validity 10000 -storepass "$KEYPASS" -keypass "$KEYPASS" -dname 'CN=EVMA Search' >/dev/null
+  echo 'Build the launcher first. The companion uses the same signing key for weather IPC.' >&2
+  exit 1
 fi
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/evma-search.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT

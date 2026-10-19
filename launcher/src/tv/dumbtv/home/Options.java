@@ -47,13 +47,14 @@ public final class Options extends Activity {
         scroll.addView(list);
 
         TextView title = Ui.text(this, 30, Ui.TEXT, Ui.LIGHT);
-        title.setText("Options");
+        title.setText("Settings");
         title.setPadding(dp(16), 0, 0, dp(20));
         list.addView(title);
 
         for (Config.Choice c : Config.CHOICES) list.addView(choice(c));
         list.addView(gap());
         list.addView(action("Apps on home screen", () -> pick(Catalog.APPS)));
+        list.addView(action("App order", () -> orderApps(0)));
         list.addView(action("Inputs in menu", () -> pick(Catalog.INPUTS)));
         list.addView(action("Open Fire TV settings", this::openTvSettings));
         list.addView(action("Reset order, names and hidden tiles", this::reset));
@@ -201,6 +202,37 @@ public final class Options extends Activity {
         } catch (ActivityNotFoundException | SecurityException e) {
             Toast.makeText(this, "Could not open TV settings", Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void orderApps(int focus) {
+        List<Item> items = Catalog.visible(cfg, Catalog.APPS, Catalog.apps(this));
+        if (items.isEmpty()) {
+            new AlertDialog.Builder(this, Ui.DIALOG).setTitle("App order")
+                    .setMessage("Show some apps using Apps on home screen first.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
+        CharSequence[] names = new CharSequence[items.size()];
+        for (int i = 0; i < items.size(); i++) names[i] = (i + 1) + ". " + Catalog.label(cfg, items.get(i));
+        new AlertDialog.Builder(this, Ui.DIALOG)
+                .setTitle("App order · Choose an app to move")
+                .setSingleChoiceItems(names, Math.min(focus, items.size() - 1), (dialog, which) -> {
+                    dialog.dismiss();
+                    new AlertDialog.Builder(this, Ui.DIALOG)
+                            .setTitle(Catalog.label(cfg, items.get(which)))
+                            .setItems(new String[] {"Move earlier", "Move later", "Move to first", "Move to last"},
+                                    (moveDialog, action) -> {
+                                        int target = action == 0 ? Math.max(0, which - 1)
+                                                : action == 1 ? Math.min(items.size() - 1, which + 1)
+                                                : action == 2 ? 0 : items.size() - 1;
+                                        List<String> ids = new ArrayList<>();
+                                        for (Item item : Order.move(items, which, target)) ids.add(item.id);
+                                        Catalog.saveOrder(cfg, Catalog.APPS, ids);
+                                        orderApps(target);
+                                    })
+                            .setNegativeButton("Back", (moveDialog, action) -> orderApps(which))
+                            .show();
+                }).setNegativeButton("Done", null).show();
     }
 
     private void reset() {
