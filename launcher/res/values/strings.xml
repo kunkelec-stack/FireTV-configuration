@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">dumbtv</string>
-    <string name="guard_label">dumbtv home button</string>
-    <string name="guard_description">Sends the HOME button to the dumbtv home screen instead of Amazon\'s. It reads no screen content and has no internet access.</string>
+    <string name="app_name">EVMA ❤️</string>
+    <string name="guard_label">EVMA home button</string>
+    <string name="guard_description">Sends the HOME button to the EVMA home screen instead of Amazon\'s. It reads no screen content and has no internet access.</string>
 </resources>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Search" parent="android:Theme.DeviceDefault.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/search_background</item>
+        <item name="android:colorBackground">#0B1220</item>
+        <item name="android:colorAccent">#3D8BFF</item>
+    </style>
+    <style name="SearchMenu" parent="android:Theme.DeviceDefault.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/menu_panel</item>
+        <item name="android:colorBackground">#111F32</item>
+        <item name="android:colorAccent">#B8D7FF</item>
+        <item name="android:textColorPrimary">#FFFFFF</item>
+        <item name="android:textColorSecondary">#B8C8DB</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:backgroundDimAmount">0.65</item>
+        <item name="android:windowMinWidthMajor">65%</item>
+        <item name="android:windowMinWidthMinor">80%</item>
+        <item name="android:colorControlHighlight">#426A93</item>
+    </style>
+</resources>

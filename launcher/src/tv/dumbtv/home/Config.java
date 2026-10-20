@@ -59,17 +59,14 @@ final class Config {
     static final Choice CLOCK = new Choice("clock", "Clock", "auto",
             new String[] {"auto", "24h", "12h"},
             new String[] {"System", "24-hour", "12-hour"});
-    static final Choice INPUTS = new Choice("inputs", "Inputs row", "on",
-            new String[] {"on", "off"},
-            new String[] {"Shown", "Hidden"});
-    static final Choice BACKGROUND = new Choice("background", "Background", "black",
+    static final Choice BACKGROUND = new Choice("background", "Background", "image",
             new String[] {"black", "graphite", "midnight", "image"},
-            new String[] {"Black", "Graphite", "Midnight", "Image file"});
+            new String[] {"Black", "Graphite", "Midnight", "Wallpaper"});
     static final Choice DIM = new Choice("dim", "Image dim", "40",
             new String[] {"0", "20", "40", "60", "80"},
             new String[] {"0%", "20%", "40%", "60%", "80%"});
 
-    static final Choice[] CHOICES = {ACCENT, TILES, LABELS, CLOCK, INPUTS, BACKGROUND, DIM};
+    static final Choice[] CHOICES = {ACCENT, TILES, LABELS, CLOCK, BACKGROUND, DIM};
 
     private static final int[] ACCENTS = {
         0xFFFFFFFF, 0xFF3D8BFF, 0xFF2BC4E8, 0xFF34C759, 0xFFFFB340, 0xFFFF5147, 0xFFFF5C9D, 0xFFA07CFF,

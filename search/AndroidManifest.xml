@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="tv.evma.search">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <application android:label="EVMA Search" android:theme="@style/Search"
+        android:allowBackup="false" android:usesCleartextTraffic="false">
+        <activity android:name=".Search" android:exported="true" android:screenOrientation="landscape"
+            android:windowSoftInputMode="adjustResize" android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="tv.evma.search.SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".Wallpapers" android:exported="true" android:screenOrientation="landscape" />
+        <provider android:name=".WallpaperProvider" android:authorities="tv.evma.search.wallpaper"
+            android:exported="true" android:grantUriPermissions="false" />
+        <service android:name=".WeatherService" android:exported="true" />
+        <provider android:name=".KeyProvider" android:authorities="tv.evma.search.provision"
+            android:exported="true" android:permission="android.permission.DUMP"
+            android:grantUriPermissions="false" />
+    </application>
+</manifest>

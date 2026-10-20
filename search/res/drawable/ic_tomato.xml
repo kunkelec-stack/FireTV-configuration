@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original tomato illustration; no official Rotten Tomatoes artwork. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp" android:height="20dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#E94A49"
+        android:pathData="M12,7 C5,4 1,10 3,16 C5,23 19,23 21,16 C23,10 19,4 12,7 Z" />
+    <path android:fillColor="#7BB65B"
+        android:pathData="M12,8 L6,6 L10,5 L10,2 L13,5 L18,4 L16,7 L19,9 L13,8 L10,11 Z" />
+    <path android:fillColor="#FF9390"
+        android:pathData="M6,12 C4,14 5,17 7,17 C8,17 6,15 7,13 Z" />
+</vector>

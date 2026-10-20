@@ -5,8 +5,10 @@ import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.ServiceConnection;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -14,10 +16,15 @@ import android.media.tv.TvInputManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
+import android.os.Message;
+import android.os.Messenger;
+import android.os.RemoteException;
 import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
+import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.text.style.RelativeSizeSpan;
 import android.view.Gravity;
@@ -57,9 +64,60 @@ public final class Home extends Activity {
     private ImageView wall;
     private View shade;
     private TextView clock, date;
-    private Row apps, inputs;
+    private TextView eyebrow, headline, description;
+    private TextView weatherLine;
+    private Messenger weatherRemote;
+    private boolean weatherBound, weatherCached;
+    private long weatherObserved;
+    private String weatherRange = "";
+    private String weatherValue = "—", weatherCondition = "Checking weather";
+    private Row apps;
+    private List<Item> inputItems = new ArrayList<>();
     private Tile moving;
     private String wallKey;
+    private WallpaperBackdrop backdrop;
+
+    private final Runnable weatherTimeout = () -> {
+        if (weatherObserved == 0 && !isDestroyed()) {
+            weatherUnavailable();
+        }
+    };
+
+    private final Messenger weatherReplies = new Messenger(new Handler(Looper.getMainLooper(), message -> {
+        if (isDestroyed() || message.what != 1) return true;
+        ui.removeCallbacks(weatherTimeout);
+        Bundle data = message.getData();
+        if (data.getBoolean("ok")) {
+            weatherValue = data.getString("temperature", "—");
+            weatherCondition = data.getString("condition", "");
+            weatherObserved = data.getLong("observedAt");
+            weatherCached = data.getBoolean("cached");
+            weatherRange = data.getString("range", "");
+            updateWeatherAge();
+        } else if (weatherObserved == 0) {
+            weatherUnavailable();
+        } else {
+            weatherCached = true;
+            updateWeatherAge();
+        }
+        return true;
+    }));
+
+    private final ServiceConnection weatherConnection = new ServiceConnection() {
+        @Override public void onServiceConnected(ComponentName name, IBinder service) {
+            weatherRemote = new Messenger(service);
+            requestWeather();
+        }
+        @Override public void onServiceDisconnected(ComponentName name) { weatherRemote = null; }
+    };
+
+    private final Runnable weatherRefresh = new Runnable() {
+        @Override public void run() {
+            if (!resumed) return;
+            requestWeather();
+            ui.postDelayed(this, 20 * 60 * 1000L);
+        }
+    };
 
     private final BroadcastReceiver packages = new BroadcastReceiver() {
         @Override
@@ -141,6 +199,7 @@ public final class Home extends Activity {
         cfg = Config.get(this);
         tv = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
         setContentView(build());
+        backdrop = new WallpaperBackdrop(this, wall, shade, () -> { wallKey = ""; background(); });
 
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -160,11 +219,14 @@ public final class Home extends Activity {
         Guard.arrived(this);
         cfg.refresh();
         if (cfg.version() != applied) apply();
+        backdrop.start();
         IntentFilter f = new IntentFilter(Intent.ACTION_TIME_TICK);
         f.addAction(Intent.ACTION_TIME_CHANGED);
         f.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         registerReceiver(time, f);
         tick();
+        bindWeather();
+        ui.post(weatherRefresh);
     }
 
     @Override
@@ -176,12 +238,21 @@ public final class Home extends Activity {
     protected void onPause() {
         super.onPause();
         resumed = false;
+        backdrop.stop();
+        ui.removeCallbacks(weatherRefresh);
+        ui.removeCallbacks(weatherTimeout);
+        if (weatherBound) {
+            unbindService(weatherConnection);
+            weatherBound = false;
+            weatherRemote = null;
+        }
         unregisterReceiver(time);
         if (moving != null) stopMoving();
     }
 
     @Override
     protected void onDestroy() {
+        if (backdrop != null) backdrop.close();
         unregisterReceiver(packages);
         if (tv != null) tv.unregisterCallback(inputWatch);
         io.shutdownNow();
@@ -263,6 +334,7 @@ public final class Home extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setClipChildren(false);
+        scroll.setClipToPadding(false);
         root.addView(scroll, new FrameLayout.LayoutParams(MATCH, MATCH));
 
         LinearLayout column = new LinearLayout(this) {
@@ -278,26 +350,81 @@ public final class Home extends Activity {
         column.setOrientation(LinearLayout.VERTICAL);
         column.setClipChildren(false);
         column.setClipToPadding(false);
-        column.setPadding(0, dp(40), 0, dp(32));
+        column.setPadding(0, dp(30), 0, dp(28));
         scroll.addView(column, new FrameLayout.LayoutParams(MATCH, WRAP));
 
         LinearLayout head = new LinearLayout(this);
-        head.setGravity(Gravity.TOP);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setClipChildren(false);
+        head.setClipToPadding(false);
         head.setPadding(dp(56), 0, dp(56), dp(12));
+        TextView brand = Ui.text(this, 21, Ui.TEXT, Ui.MEDIUM);
+        brand.setText("EVMA \u2764\uFE0F");
+        head.addView(brand, new LinearLayout.LayoutParams(0, WRAP, 1f));
+
+        LinearLayout nav = new LinearLayout(this);
+        nav.setGravity(Gravity.CENTER);
+        nav.setClipChildren(false);
+        nav.setClipToPadding(false);
+        nav.setPadding(0, dp(5), 0, dp(5));
+        TextView searchBar = chip("Search movies & shows", v -> openSearch());
+        searchBar.setMinWidth(dp(245));
+        searchBar.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        nav.addView(searchBar);
+        nav.addView(chip("Inputs", v -> showInputs()));
+        nav.addView(chip("Settings", v -> startActivity(new Intent(this, Options.class))));
+        head.addView(nav);
+
         LinearLayout when = new LinearLayout(this);
+        when.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         when.setOrientation(LinearLayout.VERTICAL);
-        clock = Ui.text(this, 52, Ui.TEXT, Ui.LIGHT);
-        date = Ui.text(this, 15, Ui.MUTED, Ui.MEDIUM);
-        date.setPadding(dp(2), dp(8), 0, 0);
+        clock = Ui.text(this, 30, Ui.TEXT, Ui.MEDIUM);
+        clock.setGravity(Gravity.END);
+        date = Ui.text(this, 16, Ui.MUTED, Ui.MEDIUM);
+        date.setGravity(Gravity.END);
+        date.setPadding(0, dp(5), 0, 0);
         when.addView(clock);
         when.addView(date);
-        head.addView(when, new LinearLayout.LayoutParams(0, WRAP, 1f));
-        head.addView(chip("Options", v -> startActivity(new Intent(this, Options.class))));
-        head.addView(chip("Settings", v -> openSettings()));
+        weatherLine = Ui.text(this, 17, Ui.TEXT, Ui.MEDIUM);
+        weatherLine.setGravity(Gravity.END);
+        weatherLine.setSingleLine(true);
+        weatherLine.setPadding(0, dp(7), 0, 0);
+        weatherLine.setText("Fairfield, OH  —");
+        weatherLine.setContentDescription("Fairfield, Ohio. Checking weather. Weather by Open-Meteo.");
+        when.addView(weatherLine);
+        head.addView(when, new LinearLayout.LayoutParams(dp(240), WRAP));
         column.addView(head, new LinearLayout.LayoutParams(MATCH, WRAP));
 
+        LinearLayout welcome = new LinearLayout(this);
+        welcome.setGravity(Gravity.CENTER_VERTICAL);
+        welcome.setPadding(dp(56), dp(26), dp(56), dp(20));
+        LinearLayout details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        details.setMinimumHeight(dp(172));
+        eyebrow = Ui.text(this, 12, Ui.MUTED, Ui.MEDIUM);
+        eyebrow.setText("WELCOME HOME");
+        eyebrow.setLetterSpacing(0.18f);
+        details.addView(eyebrow);
+        headline = Ui.text(this, 36, Ui.TEXT, Ui.LIGHT);
+        headline.setSingleLine(true);
+        headline.setEllipsize(TextUtils.TruncateAt.END);
+        headline.setText("Hello Evan & Emma");
+        headline.setPadding(0, dp(14), 0, dp(4));
+        headline.setIncludeFontPadding(true);
+        details.addView(headline);
+        description = Ui.text(this, 16, Ui.TEXT, Ui.MEDIUM);
+        description.setText("Make yourself at home.");
+        description.setMinLines(3);
+        description.setMaxLines(3);
+        description.setEllipsize(TextUtils.TruncateAt.END);
+        description.setLineSpacing(dp(3), 1f);
+        description.setPadding(0, dp(10), dp(24), 0);
+        details.addView(description);
+        welcome.addView(details, new LinearLayout.LayoutParams(0, WRAP, 1f));
+
+        column.addView(welcome, new LinearLayout.LayoutParams(MATCH, WRAP));
+
         apps = new Row(Catalog.APPS, "Apps", column);
-        inputs = new Row(Catalog.INPUTS, "Inputs", column);
         return root;
     }
 
@@ -323,16 +450,22 @@ public final class Home extends Activity {
     private TextView chip(String label, View.OnClickListener click) {
         TextView v = Ui.text(this, 14, Ui.TEXT, Ui.MEDIUM);
         v.setText(label);
+        v.setSingleLine(true);
+        v.setIncludeFontPadding(true);
+        v.setMinHeight(dp(44));
         v.setGravity(Gravity.CENTER);
         v.setPadding(dp(18), dp(9), dp(18), dp(9));
         v.setFocusable(true);
         v.setClickable(true);
         v.setOnClickListener(click);
-        v.setOnFocusChangeListener((view, has) ->
-                view.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f).setDuration(110).start());
+        v.setOnFocusChangeListener((view, has) -> {
+            view.animate().scaleX(has ? 1.06f : 1f).scaleY(has ? 1.06f : 1f).setDuration(110).start();
+            if (has) showWelcome();
+        });
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
         lp.leftMargin = dp(10);
         lp.topMargin = dp(6);
+        lp.bottomMargin = dp(6);
         v.setLayoutParams(lp);
         chips.add(v);
         return v;
@@ -343,7 +476,6 @@ public final class Home extends Activity {
         int accent = cfg.accent();
         for (TextView c : chips) Ui.focusStyle(c, accent, 0x14FFFFFF, dp(18));
         render(apps);
-        render(inputs);
         background();
         tick();
     }
@@ -371,8 +503,24 @@ public final class Home extends Activity {
     }
 
     private void loadInputs() {
-        inputs.all = Catalog.inputs(this, tv);
-        render(inputs);
+        inputItems = Catalog.inputs(this, tv);
+    }
+
+    private void showInputs() {
+        loadInputs();
+        List<Item> shown = Catalog.visible(cfg, Catalog.INPUTS, inputItems);
+        if (shown.isEmpty()) {
+            Toast.makeText(this, "No inputs to show. Check Inputs in menu in Settings.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        CharSequence[] names = new CharSequence[shown.size()];
+        for (int i = 0; i < shown.size(); i++) names[i] = Catalog.label(cfg, shown.get(i));
+        new AlertDialog.Builder(this, Ui.DIALOG)
+                .setTitle("Inputs")
+                .setItems(names, (dialog, which) -> launch(new Intent(shown.get(which).intent), null))
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void render(Row row) {
@@ -382,8 +530,7 @@ public final class Home extends Activity {
                 ? ((Tile) focused).item.id : null;
         row.strip.removeAllViews();
 
-        boolean enabled = !Catalog.INPUTS.equals(row.kind) || "on".equals(cfg.get(Config.INPUTS));
-        List<Item> shown = enabled ? Catalog.visible(cfg, row.kind, row.all) : new ArrayList<>();
+        List<Item> shown = Catalog.visible(cfg, row.kind, row.all);
         int[] size = cardSize();
         int w = size[0], h = Catalog.APPS.equals(row.kind) ? size[1] : Math.round(size[1] * 0.56f);
         String labels = cfg.get(Config.LABELS);
@@ -391,6 +538,7 @@ public final class Home extends Activity {
         int index = 0, restore = -1;
         for (Item it : shown) {
             Tile t = new Tile(this, it, row.kind, Catalog.label(cfg, it), w, h, labels, accent);
+            t.setOnFocusChangeListener((view, has) -> { if (has) showApp(it); });
             t.setOnClickListener(v -> open((Tile) v));
             t.setOnLongClickListener(v -> {
                 menu((Tile) v);
@@ -436,15 +584,71 @@ public final class Home extends Activity {
 
     private void focusFirst() {
         apps.scroll.scrollTo(0, 0);
-        inputs.scroll.scrollTo(0, 0);
         View first = apps.strip.getChildAt(0);
-        if (first == null) first = inputs.strip.getChildAt(0);
         landed = apps.strip.getChildCount() > 0;
         if (first == null) first = chips.get(0);
         first.requestFocus();
     }
 
+    private void openSearch() {
+        launch(new Intent("tv.evma.search.SEARCH").setPackage("tv.evma.search"), null);
+    }
+
+    private void showWelcome() {
+        if (eyebrow == null) return;
+        eyebrow.setText("WELCOME HOME");
+        headline.setText("Hello Evan & Emma");
+        description.setText("Make yourself at home.");
+    }
+
+    private void showApp(Item item) {
+        eyebrow.setText("EXPLORE " + item.label.toString().toUpperCase(Locale.ROOT));
+        headline.setText(Catalog.label(cfg, item));
+        description.setText(AppDetails.description(item.label.toString()) + "\nPress OK to open.");
+    }
+
+    private void bindWeather() {
+        if (weatherBound) return;
+        try {
+            Intent intent = new Intent().setClassName("tv.evma.search", "tv.evma.search.WeatherService");
+            weatherBound = bindService(intent, weatherConnection, Context.BIND_AUTO_CREATE);
+        } catch (SecurityException | IllegalArgumentException ignored) { weatherBound = false; }
+        if (!weatherBound && weatherObserved == 0) weatherUnavailable();
+        if (weatherBound) ui.postDelayed(weatherTimeout, 25000);
+    }
+
+    private void requestWeather() {
+        if (weatherRemote == null) return;
+        Message message = Message.obtain(null, 1);
+        message.replyTo = weatherReplies;
+        try {
+            ui.removeCallbacks(weatherTimeout);
+            ui.postDelayed(weatherTimeout, 25000);
+            weatherRemote.send(message);
+        }
+        catch (RemoteException ignored) { weatherRemote = null; }
+    }
+
+    private void updateWeatherAge() {
+        if (weatherObserved == 0) return;
+        boolean stale = weatherCached || System.currentTimeMillis() - weatherObserved > 40 * 60 * 1000L;
+        String updated = DateFormat.format("h:mm a", new Date(weatherObserved)).toString();
+        weatherLine.setText("Fairfield, OH  " + (stale ? "—" : weatherValue));
+        String detail = (stale ? "Current weather unavailable. Last reading: " : "")
+                + weatherCondition + ", " + weatherValue + ", " + weatherRange + ". Updated "
+                + updated + ". Weather by Open-Meteo.";
+        weatherLine.setContentDescription("Fairfield, Ohio. " + detail);
+        weatherLine.setTooltipText(detail);
+    }
+
+    private void weatherUnavailable() {
+        weatherLine.setText("Fairfield, OH  —");
+        weatherLine.setContentDescription("Fairfield, Ohio. Weather unavailable. Weather by Open-Meteo.");
+        weatherLine.setTooltipText("Weather unavailable. Will retry while home is visible. Weather by Open-Meteo.");
+    }
+
     private void tick() {
+        updateWeatherAge();
         String mode = cfg.get(Config.CLOCK);
         boolean h24 = "24h".equals(mode) || "auto".equals(mode) && DateFormat.is24HourFormat(this);
         Date now = new Date();
@@ -461,14 +665,19 @@ public final class Home extends Activity {
     }
 
     private void background() {
+        if (backdrop != null && backdrop.isActive()) return;
         boolean image = "image".equals(cfg.get(Config.BACKGROUND));
         File file = image ? cfg.wallpaper() : null;
         root.setBackgroundColor(cfg.background());
         int dim = Integer.parseInt(cfg.get(Config.DIM));
-        shade.setBackgroundColor(file == null ? Color.TRANSPARENT : Color.argb(dim * 255 / 100, 0, 0, 0));
-        String key = file == null ? null : file.getPath() + ":" + file.lastModified();
+        shade.setBackgroundColor(image ? Color.argb(dim * 255 / 100, 0, 0, 0) : Color.TRANSPARENT);
+        String key = file == null ? (image ? "bundled" : null) : file.getPath() + ":" + file.lastModified();
         if (key == null ? wallKey == null : key.equals(wallKey)) return;
         wallKey = key;
+        if ("bundled".equals(key)) {
+            wall.setImageResource(R.drawable.wallpaper);
+            return;
+        }
         if (file == null) {
             wall.setImageDrawable(null);
             return;
@@ -477,7 +686,7 @@ public final class Home extends Activity {
             Bitmap b = decode(file, getResources().getDisplayMetrics().widthPixels,
                     getResources().getDisplayMetrics().heightPixels);
             ui.post(() -> {
-                if (key.equals(wallKey)) wall.setImageBitmap(b);
+                if (key.equals(wallKey) && (backdrop == null || !backdrop.isActive())) wall.setImageBitmap(b);
             });
         });
     }
@@ -537,7 +746,7 @@ public final class Home extends Activity {
                             break;
                         case 2:
                             Catalog.setShown(cfg, t.kind, t.item, false);
-                            render(app ? apps : inputs);
+                            render(apps);
                             Toast.makeText(this, "Hidden. Bring it back from Options.", Toast.LENGTH_SHORT).show();
                             break;
                         default:
