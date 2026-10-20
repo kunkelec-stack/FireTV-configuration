@@ -71,6 +71,7 @@ public final class Search extends Activity {
     private LinearLayout suggestions;
     private HorizontalScrollView suggestionsScroll;
     private Dialog detailsDialog;
+    private WallpaperBackdrop backdrop;
     private int detailsGeneration;
     private boolean watchlistMode;
     private Parcelable returnGridState;
@@ -102,6 +103,11 @@ public final class Search extends Activity {
         shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[] {0xC9081425, 0xE5091220, 0xFA080D17}));
         root.addView(shade, new FrameLayout.LayoutParams(-1, -1));
+        backdrop = new WallpaperBackdrop(this, wallpaper, shade, () -> {
+            wallpaper.setImageResource(R.drawable.wallpaper);
+            shade.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[] {0xC9081425, 0xE5091220, 0xFA080D17}));
+        });
         LinearLayout column = new LinearLayout(this);
         column.setOrientation(LinearLayout.VERTICAL);
         column.setPadding(dp(40), dp(18), dp(40), dp(12));
@@ -598,6 +604,10 @@ public final class Search extends Activity {
         synopsis.setPadding(0, dp(16), 0, dp(16));
         synopsis.setLineSpacing(dp(3), 1);
         copy.addView(synopsis);
+        TextView credits = text(item.credits.isEmpty() ? "Cast information was not provided by the catalog." : item.credits, 16);
+        credits.setLineSpacing(dp(4), 1);
+        credits.setPadding(0, 0, 0, dp(20));
+        copy.addView(credits);
         TextView availability = text("", 15);
         availability.setTextColor(0xFFB8C8DB);
         copy.addView(availability);
@@ -668,6 +678,9 @@ public final class Search extends Activity {
                     meta.setText(fresh.detail + (fresh.runtime > 0 ? " · " + fresh.runtime + " min" : "")
                             + (fresh.genres.isEmpty() ? "" : "\n" + fresh.genres));
                     synopsis.setText(fresh.overview.isEmpty() ? "No synopsis was provided by the catalog." : fresh.overview);
+                    credits.setText(fresh.credits.isEmpty() ? "Cast information was not provided by the catalog." : fresh.credits);
+                    try { library.refreshSaved(fresh); }
+                    catch (IOException ignored) { /* Fresh credits remain visible; the previous saved snapshot is retained. */ }
                     availability.setText(availability(fresh));
                     where.setEnabled(true); where.setText("Where to watch");
                 });
@@ -717,8 +730,9 @@ public final class Search extends Activity {
 
     private void settings() {
         menu().setTitle("Search settings")
-                .setItems(new String[] {"Your streaming services", "Search setup", "Rotten Tomatoes setup", "Audience score setup"}, (dialog, which) -> {
-                    if (which == 0) services(); else if (which == 1) setup(); else if (which == 2) ratingsSetup(); else audienceSetup();
+                .setItems(new String[] {"Your streaming services", "Search setup", "Rotten Tomatoes setup", "Audience score setup", "Wallpaper manager"}, (dialog, which) -> {
+                    if (which == 0) services(); else if (which == 1) setup(); else if (which == 2) ratingsSetup();
+                    else if (which == 3) audienceSetup(); else startActivity(new Intent(this, Wallpapers.class));
                 }).setNegativeButton("Close", null).show();
     }
 
@@ -955,7 +969,10 @@ public final class Search extends Activity {
 
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
+    @Override protected void onResume() { super.onResume(); if (backdrop != null) backdrop.start(); }
+    @Override protected void onPause() { if (backdrop != null) backdrop.stop(); super.onPause(); }
     @Override protected void onDestroy() {
+        if (backdrop != null) backdrop.close();
         ++generation; if (detailsDialog != null) detailsDialog.dismiss();
         io.shutdownNow(); posters.close(); if (ratings != null) ratings.close(); if (audience != null) audience.close(); super.onDestroy();
     }

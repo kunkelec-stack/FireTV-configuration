@@ -12,6 +12,9 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <activity android:name=".Wallpapers" android:exported="true" android:screenOrientation="landscape" />
+        <provider android:name=".WallpaperProvider" android:authorities="tv.evma.search.wallpaper"
+            android:exported="true" android:grantUriPermissions="false" />
         <service android:name=".WeatherService" android:exported="true" />
         <provider android:name=".KeyProvider" android:authorities="tv.evma.search.provision"
             android:exported="true" android:permission="android.permission.DUMP"

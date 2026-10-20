@@ -75,6 +75,7 @@ public final class Home extends Activity {
     private List<Item> inputItems = new ArrayList<>();
     private Tile moving;
     private String wallKey;
+    private WallpaperBackdrop backdrop;
 
     private final Runnable weatherTimeout = () -> {
         if (weatherObserved == 0 && !isDestroyed()) {
@@ -198,6 +199,7 @@ public final class Home extends Activity {
         cfg = Config.get(this);
         tv = (TvInputManager) getSystemService(Context.TV_INPUT_SERVICE);
         setContentView(build());
+        backdrop = new WallpaperBackdrop(this, wall, shade, () -> { wallKey = ""; background(); });
 
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -217,6 +219,7 @@ public final class Home extends Activity {
         Guard.arrived(this);
         cfg.refresh();
         if (cfg.version() != applied) apply();
+        backdrop.start();
         IntentFilter f = new IntentFilter(Intent.ACTION_TIME_TICK);
         f.addAction(Intent.ACTION_TIME_CHANGED);
         f.addAction(Intent.ACTION_TIMEZONE_CHANGED);
@@ -235,6 +238,7 @@ public final class Home extends Activity {
     protected void onPause() {
         super.onPause();
         resumed = false;
+        backdrop.stop();
         ui.removeCallbacks(weatherRefresh);
         ui.removeCallbacks(weatherTimeout);
         if (weatherBound) {
@@ -248,6 +252,7 @@ public final class Home extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (backdrop != null) backdrop.close();
         unregisterReceiver(packages);
         if (tv != null) tv.unregisterCallback(inputWatch);
         io.shutdownNow();
@@ -660,6 +665,7 @@ public final class Home extends Activity {
     }
 
     private void background() {
+        if (backdrop != null && backdrop.isActive()) return;
         boolean image = "image".equals(cfg.get(Config.BACKGROUND));
         File file = image ? cfg.wallpaper() : null;
         root.setBackgroundColor(cfg.background());
@@ -680,7 +686,7 @@ public final class Home extends Activity {
             Bitmap b = decode(file, getResources().getDisplayMetrics().widthPixels,
                     getResources().getDisplayMetrics().heightPixels);
             ui.post(() -> {
-                if (key.equals(wallKey)) wall.setImageBitmap(b);
+                if (key.equals(wallKey) && (backdrop == null || !backdrop.isActive())) wall.setImageBitmap(b);
             });
         });
     }

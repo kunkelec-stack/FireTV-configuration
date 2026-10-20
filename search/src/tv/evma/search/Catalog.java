@@ -36,7 +36,7 @@ final class Catalog {
     }
 
     static final class Title {
-        final String name, detail, poster, imdbId, id, overview, genres, showType;
+        final String name, detail, poster, imdbId, id, overview, genres, showType, credits;
         final List<String> genreNames;
         final int runtime;
         private final JSONObject metadata;
@@ -56,14 +56,28 @@ final class Catalog {
             }
             genres = String.join(" · ", names);
             genreNames = java.util.Collections.unmodifiableList(names);
+            List<String> people = new ArrayList<>();
+            addCredits(people, show.optJSONArray("directors"), "Directed by");
+            addCredits(people, show.optJSONArray("creators"), "Created by");
+            addCredits(people, show.optJSONArray("cast"), "Cast");
+            credits = String.join("\n\n", people);
             metadata = show;
+        }
+        private static void addCredits(List<String> sections, JSONArray names, String heading) {
+            if (names == null) return;
+            List<String> values = new ArrayList<>();
+            for (int i = 0; i < Math.min(names.length(), 80); i++) {
+                String name = names.optString(i, "").trim();
+                if (!name.isEmpty() && !values.contains(name)) values.add(name);
+            }
+            if (!values.isEmpty()) sections.add(heading + "\n" + String.join("Cast".equals(heading) ? "\n" : " · ", values));
         }
         String identity() {
             return !id.isEmpty() ? "show:" + id : !imdbId.isEmpty() ? imdbId : name + "|" + detail;
         }
         JSONObject snapshot() throws JSONException {
             JSONObject saved = new JSONObject();
-            for (String field : new String[] {"id", "title", "showType", "releaseYear", "firstAirYear", "imdbId", "overview", "runtime", "genres"}) {
+            for (String field : new String[] {"id", "title", "showType", "releaseYear", "firstAirYear", "imdbId", "overview", "runtime", "genres", "cast", "directors", "creators"}) {
                 if (metadata.has(field)) saved.put(field, metadata.get(field));
             }
             saved.put("imageSet", new JSONObject().put("verticalPoster", new JSONObject().put("w240", poster)));

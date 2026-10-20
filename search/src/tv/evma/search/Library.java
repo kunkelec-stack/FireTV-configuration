@@ -139,6 +139,15 @@ final class Library {
             if (saved.size() >= 100) throw new IOException("This profile's watchlist has 100 titles. Remove one before saving another.");
             saved.add(0, item);
         }
+        writeSaved(saved);
+    }
+    void refreshSaved(Catalog.Title item) throws IOException {
+        List<Catalog.Title> saved = saved();
+        for (int i = 0; i < saved.size(); i++) if (saved.get(i).identity().equals(item.identity())) {
+            saved.set(i, item); writeSaved(saved); return;
+        }
+    }
+    private void writeSaved(List<Catalog.Title> saved) throws IOException {
         try {
             JSONArray json = new JSONArray();
             for (Catalog.Title title : saved) json.put(title.snapshot());

@@ -53,6 +53,13 @@ public final class Options extends Activity {
 
         for (Config.Choice c : Config.CHOICES) list.addView(choice(c));
         list.addView(gap());
+        list.addView(action("Wallpaper manager", () -> {
+            try {
+                startActivity(new Intent().setClassName("tv.evma.search", "tv.evma.search.Wallpapers"));
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Toast.makeText(this, "Install or update the EVMA Search companion to manage wallpapers.", Toast.LENGTH_LONG).show();
+            }
+        }));
         list.addView(action("Apps on home screen", () -> pick(Catalog.APPS)));
         list.addView(action("App order", () -> orderApps(0)));
         list.addView(action("Inputs in menu", () -> pick(Catalog.INPUTS)));
@@ -67,7 +74,7 @@ public final class Options extends Activity {
         about.setLineSpacing(0, 1.4f);
         about.setPadding(dp(16), dp(28), 0, 0);
         about.setText("Settings file: " + cfg.dir + "/" + Config.FILE
-                + "\nWallpaper: the bundled image is included. Put wallpaper.jpg in that folder to use your own."
+                + "\nWallpaper manager shares photos, Fill/Fit, brightness, dimming and rotation with Search. Once applied, it overrides the legacy background controls above."
                 + "\nWeather: Open-Meteo (open-meteo.com), CC BY 4.0, via the optional search companion."
                 + "\nNo internet permission. No tracking, no ads, no accounts.");
         list.addView(about);

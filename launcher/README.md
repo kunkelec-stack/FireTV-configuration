@@ -17,6 +17,13 @@ the top navigation restores the greeting. These descriptions make no catalog cal
 Use **Settings → App order** to select an app and move it earlier, later, first,
 or last. The existing hold-OK move control also remains available.
 
+**Settings → Wallpaper manager** opens the companion's local photo gallery:
+upload from a PC/phone, preview, Fill/Fit, brightness, dimming, original mountain
+restore, and optional rotation. Applying a wallpaper shares it with Search and
+overrides the legacy background/image-dim controls. The wallpaper bridge accepts
+only the same-signed Home app; Home still requests zero permissions. See the
+[wallpaper instructions](../search/README.md#local-wallpaper-manager).
+
 - **41 KB APK.** Plain Java and Android views: no AndroidX, Kotlin, Compose, Play
   Services or other libraries.
 - **No permissions at all.** It has no `INTERNET` permission, so Android blocks it

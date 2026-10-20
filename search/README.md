@@ -34,6 +34,56 @@ runtime and genres when provided, critics score, and **Where to watch**.
 Provider selection and unsupported-link fallback are retained behind that button.
 Back or Close returns to the previous grid. Long descriptions scroll with the remote.
 
+Cast appears below the synopsis as a scrollable list, with directors and creators
+when the catalog supplies them. These names come from the existing
+[show response](https://docs.movieofthenight.com/resource/shows), with no extra API
+key or separate credits request. New watchlist entries include these fields in
+their local snapshots. Opening an older saved title refreshes its snapshot after
+a successful availability check, preserving its position and watched status.
+Saved credits remain readable offline; missing credits are labeled explicitly.
+
+### Local wallpaper manager
+
+Open **Home → Settings → Wallpaper manager**, or **Search → Settings → Wallpaper
+manager**. Select a thumbnail with the remote to open a full-screen preview.
+Cycle **Fill/Fit**, **Brightness** (60–140%), and **Dim** (0–80%), then select
+**Apply**. Cancel/Back leaves the applied wallpaper unchanged. The same selection
+and controls apply to Home and Search. Once enabled, the manager overrides Home's
+legacy background and image-dim controls. If the companion is unavailable, Home
+falls back to its existing local background configuration.
+
+Choose **Upload photo** to display a temporary address and PIN. On a PC or phone
+on the same trusted home network, open that address in a browser, enter the PIN,
+and choose a JPG, PNG, or WebP image under 12 MB. This is a local, unencrypted
+upload, with no cloud storage or external image host. Guest Wi-Fi/client isolation
+can prevent access. Leave the upload dialog open until the browser confirms the
+photo was saved, then choose **Done** and select the new thumbnail to preview it.
+Uploading never changes the active wallpaper automatically.
+
+The receiver binds only to the TV's local IPv4 interface while explicitly opened;
+it closes when the upload dialog is dismissed, the activity is paused, or five
+minutes elapse. Requests and image dimensions are bounded; eight incorrect PINs
+or forty connections end the session. Network and image processing run off the
+UI thread. Uploaded photos are decoded, oriented, sampled to at most 1920 pixels
+per side, and re-encoded as JPEG in private app storage (original metadata is
+not retained). Up to twenty custom images are kept. Hold OK on a custom thumbnail
+to remove it. The original mountain image cannot be removed.
+
+**Original → Apply** restores the bundled mountain image. Set **Rotation → Off**
+to keep it fixed. Optional rotation visits all gallery photos, including the
+original, every fifteen minutes, hour, or day. It is calculated from elapsed time
+when a screen is visible, with no background alarm or always-running service.
+Both screens poll while visible and refresh immediately when reopened.
+
+The companion serves read-only wallpaper data only to itself and the installed
+Home package with the same signing certificate. Home gains no permissions. Photo
+uploads and wallpaper changes consume no catalog or ratings requests. Updates
+using `install -r` preserve photos and settings; uninstalling/clearing Search data
+deletes them. Keep the source photos on your PC/phone: the watchlist JSON export
+does not include wallpapers.
+
+### Profiles and saved titles
+
 The profile button switches between **Together**, **Evan**, and **Emma**.
 Each profile has its own watchlist, latest 20 unique recent searches, and service
 filters. API keys and the ratings cache are shared privately on this TV. Existing
